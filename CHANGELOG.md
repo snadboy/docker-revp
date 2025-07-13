@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/snadboy/docker-revp/compare/v1.1.0...v1.1.1) (2025-07-13)
+
+
+### Bug Fixes
+
+* resolve permission and configuration issues ([87de1b8](https://github.com/snadboy/docker-revp/commit/87de1b8c740b09667950b61b61cdbe26124f21ec))
+
 # [1.1.0](https://github.com/snadboy/docker-revp/compare/v1.0.0...v1.1.0) (2025-07-13)
 
 
