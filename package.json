@@ -19,5 +19,9 @@
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "semantic-release": "^21.0.7"
+  },
+  "dependencies": {
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/github": "^9.2.6"
   }
 }
