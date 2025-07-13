@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/snadboy/docker-revp/compare/v1.0.0...v1.1.0) (2025-07-13)
+
+
+### Features
+
+* add environment configuration with .env support ([ba4cb2d](https://github.com/snadboy/docker-revp/commit/ba4cb2db60dd2faf4f1bd30402a78a25c039316f))
+
 # 1.0.0 (2025-07-13)
 
 
