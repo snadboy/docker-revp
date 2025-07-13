@@ -146,11 +146,18 @@ shell: ## Get shell in running container
 dev-setup: ## Set up development environment
 	@echo "Setting up development environment..."
 	@if [ ! -f .env ]; then \
-		echo "Creating .env file..."; \
-		echo "DOCKER_HOSTS=localhost" > .env; \
-		echo "SSH_USER=$$USER" >> .env; \
-		echo "SSH_PRIVATE_KEY=" >> .env; \
-		echo "Please edit .env file and add your SSH private key"; \
+		echo "Creating .env file from example..."; \
+		cp .env.example .env; \
+		echo "Please edit .env file and configure your settings:"; \
+		echo "  - Set DOCKER_HOSTS to your Docker host list"; \
+		echo "  - Set SSH_USER to your SSH username"; \
+		echo "  - Set SSH_PRIVATE_KEY to your private key content"; \
+		echo ""; \
+		echo "Quick setup with current user:"; \
+		echo "  SSH_USER=$$USER"; \
+		echo "  SSH_PRIVATE_KEY=\$$(cat ~/.ssh/id_rsa)"; \
+	else \
+		echo ".env file already exists"; \
 	fi
 
 .PHONY: release

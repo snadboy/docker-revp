@@ -16,9 +16,18 @@ A Python-based Docker container that monitors Docker containers across multiple 
 
 1. **Set up environment variables:**
    ```bash
-   export SSH_USER=your-ssh-user
-   export SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)"
-   export DOCKER_HOSTS="server1 server2:2222 localhost"
+   # Copy the example environment file
+   cp .env.example .env
+   
+   # Edit .env file with your configuration
+   nano .env
+   ```
+   
+   **Required variables in .env:**
+   ```bash
+   DOCKER_HOSTS=server1 server2:2222 localhost
+   SSH_USER=your-ssh-user
+   SSH_PRIVATE_KEY=your-private-key-content
    ```
 
 2. **Run with Docker Compose:**
@@ -72,6 +81,22 @@ git commit -m "fix: handle connection timeouts"          # → v1.1.1
 git commit -m "feat!: change API response format"        # → v2.0.0
 git push origin main                                     # Triggers auto-release
 ```
+
+## Environment Configuration
+
+### Setup with Makefile
+```bash
+make dev-setup    # Creates .env from .env.example
+nano .env         # Edit your configuration
+```
+
+### Manual Setup
+```bash
+cp .env.example .env
+# Edit .env with your settings
+```
+
+**Important**: The `.env` file contains sensitive information (SSH keys) and is excluded from git via `.gitignore`.
 
 ## Configuration
 
