@@ -1,0 +1,133 @@
+"""SSH configuration generation for Docker hosts."""
+import os
+import stat
+from pathlib import Path
+from typing import List, Tuple
+
+from .config import settings
+from .logger import ssh_logger
+
+
+class SSHConfigManager:
+    """Manages SSH configuration for Docker hosts."""
+    
+    def __init__(self):
+        self.ssh_dir = Path.home() / ".ssh"
+        self.config_file = self.ssh_dir / "config"
+        self.key_file = self.ssh_dir / "docker_monitor_key"
+    
+    def setup(self) -> None:
+        """Set up SSH configuration and private key."""
+        try:
+            # Create SSH directory if it doesn't exist
+            self.ssh_dir.mkdir(mode=0o700, exist_ok=True)
+            
+            # Write private key
+            self._write_private_key()
+            
+            # Generate SSH config
+            self._generate_ssh_config()
+            
+            ssh_logger.info("SSH configuration set up successfully")
+            
+        except Exception as e:
+            ssh_logger.error(f"Failed to set up SSH configuration: {e}")
+            raise
+    
+    def _write_private_key(self) -> None:
+        """Write SSH private key to file with proper permissions."""
+        ssh_logger.info(f"Writing SSH private key to {self.key_file}")
+        
+        # Write the key
+        self.key_file.write_text(settings.ssh_private_key)
+        
+        # Set strict permissions (600)
+        os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)
+        
+        ssh_logger.info("SSH private key written successfully")
+    
+    def _generate_ssh_config(self) -> None:
+        """Generate SSH config file for Docker hosts."""
+        hosts = settings.parse_docker_hosts()
+        
+        if not hosts:
+            ssh_logger.warning("No Docker hosts configured")
+            return
+        
+        ssh_logger.info(f"Generating SSH config for {len(hosts)} hosts")
+        
+        # Read existing config if it exists
+        existing_config = ""
+        if self.config_file.exists():
+            existing_config = self.config_file.read_text()
+            
+            # Remove our managed section if it exists
+            start_marker = "# BEGIN DOCKER MONITOR MANAGED HOSTS"
+            end_marker = "# END DOCKER MONITOR MANAGED HOSTS"
+            
+            if start_marker in existing_config and end_marker in existing_config:
+                start_idx = existing_config.index(start_marker)
+                end_idx = existing_config.index(end_marker) + len(end_marker)
+                existing_config = existing_config[:start_idx] + existing_config[end_idx + 1:]
+        
+        # Generate new config section
+        config_lines = ["# BEGIN DOCKER MONITOR MANAGED HOSTS"]
+        
+        for alias, host, port in hosts:
+            config_lines.extend([
+                f"Host {alias}",
+                f"    HostName {host}",
+                f"    User {settings.ssh_user}",
+                f"    Port {port}",
+                f"    IdentityFile {self.key_file}",
+                "    StrictHostKeyChecking accept-new",
+                "    ServerAliveInterval 60",
+                "    ServerAliveCountMax 3",
+                "    ControlMaster auto",
+                "    ControlPath ~/.ssh/control-%r@%h:%p",
+                "    ControlPersist 10m",
+                ""
+            ])
+        
+        config_lines.append("# END DOCKER MONITOR MANAGED HOSTS")
+        
+        # Combine with existing config
+        new_config = existing_config.rstrip() + "\n\n" + "\n".join(config_lines) + "\n"
+        
+        # Write config file
+        self.config_file.write_text(new_config)
+        
+        # Set permissions (644)
+        os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+        
+        ssh_logger.info(f"SSH config written successfully with {len(hosts)} hosts")
+    
+    def get_docker_hosts(self) -> List[Tuple[str, str, int]]:
+        """Get list of configured Docker hosts."""
+        return settings.parse_docker_hosts()
+    
+    def test_connections(self) -> dict:
+        """Test SSH connections to all configured hosts."""
+        results = {}
+        hosts = self.get_docker_hosts()
+        
+        for alias, host, port in hosts:
+            ssh_logger.info(f"Testing connection to {host}:{port}")
+            
+            # Test with docker version command
+            cmd = f"docker -H ssh://{alias} version"
+            exit_code = os.system(f"{cmd} >/dev/null 2>&1")
+            
+            success = exit_code == 0
+            results[host] = {
+                "alias": alias,
+                "port": port,
+                "connected": success
+            }
+            
+            if success:
+                ssh_logger.info(f"Successfully connected to {host}:{port}")
+            else:
+                ssh_logger.error(f"Failed to connect to {host}:{port}")
+        
+        return results

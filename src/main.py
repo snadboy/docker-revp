@@ -1,0 +1,144 @@
+"""Main entry point for Docker Monitor."""
+import asyncio
+import signal
+import sys
+from typing import Optional
+
+import uvicorn
+
+from .config import settings
+from .logger import main_logger
+from .ssh_config import SSHConfigManager
+from .docker_monitor import DockerMonitor
+from .caddy_manager import CaddyManager
+from .api.app import create_app
+
+
+class DockerMonitorService:
+    """Main service orchestrator."""
+    
+    def __init__(self):
+        self.ssh_manager: Optional[SSHConfigManager] = None
+        self.docker_monitor: Optional[DockerMonitor] = None
+        self.caddy_manager: Optional[CaddyManager] = None
+        self.app = None
+        self._shutdown_event = asyncio.Event()
+    
+    async def start(self) -> None:
+        """Start all components."""
+        main_logger.info("Starting Docker Monitor service")
+        
+        try:
+            # Validate configuration
+            settings.validate()
+            main_logger.info("Configuration validated successfully")
+            
+            # Set up SSH configuration
+            main_logger.info("Setting up SSH configuration")
+            self.ssh_manager = SSHConfigManager()
+            self.ssh_manager.setup()
+            
+            # Initialize Caddy manager
+            main_logger.info("Initializing Caddy manager")
+            self.caddy_manager = CaddyManager()
+            await self.caddy_manager.start()
+            
+            # Initialize Docker monitor
+            main_logger.info("Initializing Docker monitor")
+            self.docker_monitor = DockerMonitor(caddy_manager=self.caddy_manager)
+            await self.docker_monitor.start()
+            
+            # Create FastAPI app
+            self.app = create_app(
+                docker_monitor=self.docker_monitor,
+                caddy_manager=self.caddy_manager,
+                ssh_manager=self.ssh_manager
+            )
+            
+            main_logger.info("All components started successfully")
+            
+        except Exception as e:
+            main_logger.error(f"Failed to start service: {e}")
+            await self.stop()
+            raise
+    
+    async def stop(self) -> None:
+        """Stop all components."""
+        main_logger.info("Stopping Docker Monitor service")
+        
+        # Stop Docker monitor
+        if self.docker_monitor:
+            await self.docker_monitor.stop()
+        
+        # Stop Caddy manager
+        if self.caddy_manager:
+            await self.caddy_manager.stop()
+        
+        main_logger.info("Docker Monitor service stopped")
+    
+    async def run_api_server(self) -> None:
+        """Run the FastAPI server."""
+        config = uvicorn.Config(
+            app=self.app,
+            host=settings.api_host,
+            port=settings.api_port,
+            log_level=settings.log_level.lower(),
+            access_log=True
+        )
+        
+        server = uvicorn.Server(config)
+        
+        # Start server in background
+        await server.serve()
+    
+    async def wait_for_shutdown(self) -> None:
+        """Wait for shutdown signal."""
+        await self._shutdown_event.wait()
+    
+    def signal_handler(self, signum, frame):
+        """Handle shutdown signals."""
+        main_logger.info(f"Received signal {signum}, initiating shutdown")
+        self._shutdown_event.set()
+
+
+async def main():
+    """Main entry point."""
+    service = DockerMonitorService()
+    
+    # Set up signal handlers
+    for sig in [signal.SIGTERM, signal.SIGINT]:
+        signal.signal(sig, service.signal_handler)
+    
+    try:
+        # Start service
+        await service.start()
+        
+        # Start API server and wait for shutdown
+        api_task = asyncio.create_task(service.run_api_server())
+        shutdown_task = asyncio.create_task(service.wait_for_shutdown())
+        
+        # Wait for either API server to finish or shutdown signal
+        done, pending = await asyncio.wait(
+            [api_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+    except KeyboardInterrupt:
+        main_logger.info("Received keyboard interrupt")
+    except Exception as e:
+        main_logger.error(f"Service error: {e}")
+        sys.exit(1)
+    finally:
+        await service.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

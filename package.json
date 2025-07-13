@@ -1,0 +1,23 @@
+{
+  "name": "docker-revp",
+  "version": "1.0.0",
+  "description": "Docker Reverse Proxy with Caddy Integration",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snadboy/docker-revp.git"
+  },
+  "keywords": [
+    "docker",
+    "reverse-proxy",
+    "caddy",
+    "monitoring",
+    "ssh"
+  ],
+  "author": "snadboy",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "semantic-release": "^21.0.7"
+  }
+}

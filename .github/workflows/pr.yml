@@ -1,0 +1,112 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run linting
+        run: |
+          pip install ruff
+          ruff check src/
+
+      - name: Run tests
+        run: |
+          echo "No tests configured yet"
+          # Add actual test commands here when tests are implemented
+
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get build info
+        id: build-info
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          BUILD_VERSION=${VERSION}-pr.${GIT_COMMIT}
+          
+          echo "version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+          echo "git_commit=$GIT_COMMIT" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image (test only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: docker-revp:${{ steps.build-info.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.build-info.outputs.version }}
+            BUILD_DATE=${{ steps.build-info.outputs.build_date }}
+            GIT_COMMIT=${{ steps.build-info.outputs.git_commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test container
+        run: |
+          docker run --rm docker-revp:${{ steps.build-info.outputs.version }} python -c "
+          import sys
+          sys.path.append('/app/src')
+          from config import settings
+          print(f'Version: {settings.app_version}')
+          print(f'Build Date: {settings.build_date}')
+          print(f'Git Commit: {settings.git_commit}')
+          "
+
+  validate-conventional-commits:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          requireScope: false
+          disallowScopes: |
+            release
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            didn't match the configured pattern. Please ensure that the subject
+            doesn't start with an uppercase character.
