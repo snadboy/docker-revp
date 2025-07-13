@@ -12,13 +12,21 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI
-RUN curl -fsSL https://get.docker.com | sh
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
 
-# Create log directory
-RUN mkdir -p /var/log/docker-revp
+# Create log directory with proper permissions
+RUN mkdir -p /var/log/docker-revp && chown 1000:1000 /var/log/docker-revp
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
@@ -30,10 +38,14 @@ COPY src/ ./src/
 # Copy version file
 COPY VERSION ./
 
-# Create SSH directory
-RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+# Create user and SSH directory
+RUN useradd -u 1000 -m -s /bin/bash app && \
+    mkdir -p /home/app/.ssh && \
+    chmod 700 /home/app/.ssh && \
+    chown 1000:1000 /home/app/.ssh
 
-# Set version environment variables
+# Set environment variables
+ENV HOME=/home/app
 ENV APP_VERSION=${VERSION}
 ENV BUILD_DATE=${BUILD_DATE}
 ENV GIT_COMMIT=${GIT_COMMIT}

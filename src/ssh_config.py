@@ -38,8 +38,11 @@ class SSHConfigManager:
         """Write SSH private key to file with proper permissions."""
         ssh_logger.info(f"Writing SSH private key to {self.key_file}")
         
-        # Write the key
-        self.key_file.write_text(settings.ssh_private_key)
+        # Write the key, ensuring it ends with a newline
+        key_content = settings.ssh_private_key
+        if not key_content.endswith('\n'):
+            key_content += '\n'
+        self.key_file.write_text(key_content)
         
         # Set strict permissions (600)
         os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)

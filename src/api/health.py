@@ -1,5 +1,5 @@
 """Health check endpoints for Docker Reverse Proxy."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from fastapi import APIRouter, Request
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/health", tags=["health"])
 @router.get("")
 async def health_check():
     """Basic health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/version")
@@ -25,7 +25,7 @@ async def version_info():
         "version": settings.app_version,
         "build_date": settings.build_date,
         "git_commit": settings.git_commit,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -36,7 +36,7 @@ async def detailed_health_check(request: Request) -> Dict[str, Any]:
     
     response = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "components": {}
     }
     
