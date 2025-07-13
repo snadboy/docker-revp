@@ -376,3 +376,74 @@ class DockerMonitor:
                 for alias, host, port in self.hosts_config
             ]
         }
+    
+    def list_containers_sync(self, hostname: str) -> List[dict]:
+        """List containers on a specific host (synchronous)."""
+        try:
+            docker_logger.info(f"Looking for containers on {hostname}")
+            # Find the host config
+            alias = None
+            for a, h, p in self.hosts_config:
+                if h == hostname:
+                    alias = a
+                    break
+            
+            if not alias:
+                docker_logger.warning(f"No alias found for hostname {hostname}")
+                return []
+            
+            # Run docker ps command synchronously
+            import subprocess
+            result = subprocess.run([
+                "docker", "-H", f"ssh://{alias}",
+                "ps", "--format", "{{json .}}"
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                docker_logger.error(f"Failed to list containers on {hostname}: {result.stderr}")
+                return []
+            
+            containers = []
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    try:
+                        containers.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            
+            return containers
+            
+        except Exception as e:
+            docker_logger.error(f"Error listing containers on {hostname}: {e}")
+            return []
+    
+    def inspect_container_sync(self, hostname: str, container_id: str) -> dict:
+        """Inspect a specific container (synchronous)."""
+        try:
+            # Find the host config
+            alias = None
+            for a, h, p in self.hosts_config:
+                if h == hostname:
+                    alias = a
+                    break
+            
+            if not alias:
+                return {}
+            
+            # Run docker inspect command synchronously
+            import subprocess
+            result = subprocess.run([
+                "docker", "-H", f"ssh://{alias}",
+                "inspect", container_id
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                docker_logger.error(f"Failed to inspect container {container_id} on {hostname}: {result.stderr}")
+                return {}
+            
+            data = json.loads(result.stdout)
+            return data[0] if data else {}
+            
+        except Exception as e:
+            docker_logger.error(f"Error inspecting container {container_id} on {hostname}: {e}")
+            return {}

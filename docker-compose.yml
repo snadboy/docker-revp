@@ -76,6 +76,29 @@ services:
       - "snadboy.revp.force-ssl=false"
     restart: unless-stopped
 
+  # Example service 1: Whoami
+  whoami1:
+    image: traefik/whoami
+    container_name: whoami1
+    labels:
+      - "snadboy.revp.port=80"
+      - "snadboy.revp.domain=whoami1.${DOMAIN}"
+      - "snadboy.revp.path=/"
+      - "snadboy.revp.title=Whoami Service 1"
+      - "snadboy.revp.description=Test service showing request headers"
+      - "snadboy.revp.scheme=https"
+
+  # Example service 2: Whoami
+  whoami2:
+    image: traefik/whoami
+    container_name: whoami2
+    labels:
+      - "snadboy.revp.port=80"
+      - "snadboy.revp.domain=whoami2.${DOMAIN}"
+      - "snadboy.revp.path=/"
+      - "snadboy.revp.title=Whoami Service 2"
+      - "snadboy.revp.description=Another test service"
+      
 volumes:
   caddy_data:
   caddy_config:

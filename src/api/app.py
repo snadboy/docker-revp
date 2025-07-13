@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from ..config import settings
 from ..logger import api_logger
 from .health import router as health_router
+from .containers import router as containers_router
 
 
 def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
@@ -22,6 +23,7 @@ def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
     
     # Include routers
     app.include_router(health_router)
+    app.include_router(containers_router)
     
     @app.on_event("startup")
     async def startup_event():
