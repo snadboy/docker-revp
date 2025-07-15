@@ -8,6 +8,8 @@ A Python-based Docker container that monitors Docker containers across multiple 
 - **Real-time container event monitoring** (start, stop, pause, unpause)
 - **Automatic Caddy reverse proxy configuration** via Admin API
 - **FastAPI health check and metrics endpoints**
+- **AI-native MCP (Model Context Protocol) integration** for AI agent access
+- **Responsive web dashboard** with real-time container management
 - **Comprehensive logging** with rotation
 - **Configurable reconciliation** for missed events
 - **SSH connection management** with automatic configuration
@@ -39,6 +41,58 @@ A Python-based Docker container that monitors Docker containers across multiple 
    ```bash
    curl http://localhost:8080/health/detailed
    ```
+
+4. **Access the dashboard:**
+   ```bash
+   # Web interface
+   open http://localhost:8080
+   
+   # AI agent MCP endpoint
+   curl http://localhost:8080/mcp
+   ```
+
+## AI Integration (MCP)
+
+Docker RevP now includes **Model Context Protocol (MCP)** support, allowing AI agents like Claude to interact directly with your container infrastructure.
+
+### Available MCP Tools
+
+When connected via MCP, AI agents can access:
+
+- **`list_containers`** - Get all monitored containers with filtering options
+- **`health_check`** - Check system health status  
+- **`detailed_health_check`** - Get detailed component health information
+- **`version_info`** - Get version and build information
+- **`metrics`** - Get Prometheus-compatible metrics
+
+### AI Agent Configuration
+
+**For Claude Desktop:**
+```json
+{
+  "servers": {
+    "docker-revp": {
+      "command": "mcp-client",
+      "args": ["--url", "http://your-server:8080/mcp"]
+    }
+  }
+}
+```
+
+**For other MCP clients:**
+- **MCP Endpoint:** `http://your-server:8080/mcp`
+- **Transport:** SSE (Server-Sent Events) or WebSocket
+- **Authentication:** Uses same auth as main API (if configured)
+
+### Example AI Interactions
+
+Once connected, you can ask AI agents:
+- *"Show me all running containers on vm-switchboard"*
+- *"What's the health status of the Docker RevP system?"*
+- *"How many containers are currently monitored?"*
+- *"Are there any containers with RevP labels that aren't running?"*
+
+The AI will automatically use the appropriate MCP tools to query your infrastructure and provide real-time information.
 
 ## Versioning
 

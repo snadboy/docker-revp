@@ -10,6 +10,14 @@ from .health import router as health_router
 from .containers import router as containers_router
 from .dashboard import router as dashboard_router
 
+# Import FastAPI-MCP for Model Context Protocol support
+try:
+    from fastapi_mcp import FastApiMCP
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    api_logger.warning("fastapi-mcp not available, MCP endpoint will not be mounted")
+
 
 def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
     """Create FastAPI application."""
@@ -33,9 +41,20 @@ def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
     app.include_router(health_router)
     app.include_router(containers_router)
     
+    # Mount MCP server for AI agent integration
+    if MCP_AVAILABLE:
+        try:
+            mcp = FastApiMCP(app)
+            mcp.mount()  # Mounts at /mcp endpoint
+            api_logger.info("MCP server mounted at /mcp - AI agents can now access this API")
+        except Exception as e:
+            api_logger.error(f"Failed to mount MCP server: {e}")
+    
     @app.on_event("startup")
     async def startup_event():
         api_logger.info(f"API server starting on {settings.api_host}:{settings.api_port}")
+        if MCP_AVAILABLE:
+            api_logger.info("MCP endpoint available for AI agent integration")
     
     @app.on_event("shutdown")
     async def shutdown_event():
