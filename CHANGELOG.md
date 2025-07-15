@@ -1,3 +1,15 @@
+# [1.2.0](https://github.com/snadboy/docker-revp/compare/v1.1.1...v1.2.0) (2025-07-15)
+
+
+### Bug Fixes
+
+* improve table column resizing behavior ([cdd8c17](https://github.com/snadboy/docker-revp/commit/cdd8c17920b29011deb033869c3084bd7edf5068))
+
+
+### Features
+
+* add containers API endpoint with label defaults ([687b2ed](https://github.com/snadboy/docker-revp/commit/687b2ed2a0c76310c8567db3619ff57afc03341e))
+
 ## [1.1.1](https://github.com/snadboy/docker-revp/compare/v1.1.0...v1.1.1) (2025-07-13)
 
 
