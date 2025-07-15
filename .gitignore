@@ -254,3 +254,6 @@ ssh-debug/
 
 # Caddy data
 caddy/
+
+# Claude Code settings
+.claude/
