@@ -1,3 +1,29 @@
+# [2.0.0](https://github.com/snadboy/docker-revp/compare/v1.2.0...v2.0.0) (2025-07-15)
+
+
+### BREAKING CHANGES
+
+* Major dashboard redesign with responsive web interface
+* Complete table column resizing overhaul with proper behavior
+* Comprehensive project documentation added (PRD, API specs, technical docs)
+* Cleaned up debugging code and optimized performance
+
+
+### Features
+
+* **dashboard**: Add complete web-based dashboard with responsive design
+* **ui**: Implement proper table column resizing with left-lock, right-fill behavior
+* **docs**: Add comprehensive project documentation (PRD, API, technical specs)
+* **api**: Enhanced container API with better label handling
+
+
+### Bug Fixes
+
+* **ui**: Fix table column resizing to only move right border of target column
+* **ui**: Remove rightmost column resizer since table now uses full viewport width
+* **cleanup**: Remove debugging console.log statements and excessive API logging
+
+
 # [1.2.0](https://github.com/snadboy/docker-revp/compare/v1.1.1...v1.2.0) (2025-07-15)
 
 
