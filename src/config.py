@@ -65,17 +65,32 @@ class Settings(BaseSettings):
         
         hosts = []
         for host_spec in self.docker_hosts.split():
+            # Validate against invalid formats
+            if any(scheme in host_spec.lower() for scheme in ['unix://', 'tcp://', 'http://', 'https://']):
+                raise ValueError(f"Invalid DOCKER_HOST format '{host_spec}': protocol schemes not supported. Use hostname or hostname:port format.")
+            
+            if '/' in host_spec and not host_spec.replace(':', '').replace('.', '').replace('-', '').isalnum():
+                raise ValueError(f"Invalid DOCKER_HOST format '{host_spec}': paths not supported. Use hostname or hostname:port format.")
+            
             if ':' in host_spec:
-                host, port = host_spec.rsplit(':', 1)
+                host, port_str = host_spec.rsplit(':', 1)
                 try:
-                    port = int(port)
-                except ValueError:
+                    port = int(port_str)
+                    if port < 1 or port > 65535:
+                        raise ValueError(f"Invalid port {port} in '{host_spec}': port must be between 1 and 65535")
+                except ValueError as e:
+                    if "port must be between" in str(e):
+                        raise e
                     # If port is not a number, treat the whole thing as hostname
                     host = host_spec
                     port = 22
             else:
                 host = host_spec
                 port = 22
+            
+            # Basic hostname validation
+            if not host or len(host) > 253:
+                raise ValueError(f"Invalid hostname '{host}': must be 1-253 characters")
             
             # Create a safe alias for SSH config
             alias = f"docker-{host.replace('.', '-').replace(':', '-')}-{port}"
@@ -89,6 +104,12 @@ class Settings(BaseSettings):
         
         if not self.docker_hosts:
             errors.append("DOCKER_HOSTS environment variable is required")
+        else:
+            # Validate DOCKER_HOSTS format by attempting to parse it
+            try:
+                self.parse_docker_hosts()
+            except ValueError as e:
+                errors.append(f"DOCKER_HOSTS validation failed: {e}")
         
         if not self.ssh_user:
             errors.append("SSH_USER environment variable is required")

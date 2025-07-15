@@ -35,8 +35,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/ ./src/
 
-# Copy version file
+# Copy version and changelog files
 COPY VERSION ./
+COPY CHANGELOG.md ./
 
 # Create user and SSH directory
 RUN useradd -u 1000 -m -s /bin/bash app && \

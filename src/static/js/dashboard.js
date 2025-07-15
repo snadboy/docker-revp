@@ -494,16 +494,13 @@ class Dashboard {
     }
 
     setupColumnResizing() {
-        console.log('setupColumnResizing called');
         const table = document.querySelector('#containers-table');
         if (!table) {
-            console.log('No table found');
             return;
         }
         
         // Remove existing resizers first
         const existingResizers = table.querySelectorAll('.column-resizer');
-        console.log('Removing', existingResizers.length, 'existing resizers');
         existingResizers.forEach(resizer => resizer.remove());
         
         // Skip first column (expand button) and last column for resizing
@@ -517,7 +514,6 @@ class Dashboard {
             
             // Add resize event listeners
             resizer.addEventListener('mousedown', (e) => {
-                console.log('Resizer mousedown triggered');
                 e.preventDefault();
                 e.stopPropagation();
                 this.startResize(e, header, resizer);

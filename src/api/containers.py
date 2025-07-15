@@ -91,9 +91,16 @@ async def list_containers(
                 else:
                     processed_revp = revp_labels
                 
+                # Get container ID, fallback to generating one from name+host
+                container_id = container.get("ID", container.get("Id", ""))
+                if not container_id:
+                    # Generate a unique ID from container name and host
+                    import hashlib
+                    container_id = hashlib.sha256(f"{container_name}@{hostname}".encode()).hexdigest()[:12]
+                
                 # Create container info
                 container_info = {
-                    "id": container.get("Id", ""),
+                    "id": container_id,
                     "name": container_name,
                     "host": hostname,
                     "state": container.get("State", "unknown"),

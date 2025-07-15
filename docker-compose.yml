@@ -69,7 +69,7 @@ services:
     image: nginx:alpine
     container_name: test-web
     labels:
-      - "snadboy.revp.domain=test.local"
+      - "snadboy.revp.domai1n=test.local"
       - "snadboy.revp.backend-port=80"
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
@@ -98,7 +98,7 @@ services:
       - "snadboy.revp.path=/"
       - "snadboy.revp.title=Whoami Service 2"
       - "snadboy.revp.description=Another test service"
-      
+
 volumes:
   caddy_data:
   caddy_config:
