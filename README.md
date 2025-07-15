@@ -65,24 +65,194 @@ When connected via MCP, AI agents can access:
 - **`version_info`** - Get version and build information
 - **`metrics`** - Get Prometheus-compatible metrics
 
-### AI Agent Configuration
+### Setting Up MCP in Different AI Platforms
 
-**For Claude Desktop:**
+#### Claude Desktop
+
+1. **Open Claude Desktop settings**
+2. **Navigate to Developer → Model Context Protocol**
+3. **Edit the configuration:**
+
 ```json
 {
   "servers": {
     "docker-revp": {
-      "command": "mcp-client",
-      "args": ["--url", "http://your-server:8080/mcp"]
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-fetch",
+        "http://your-server:8080/mcp"
+      ]
     }
   }
 }
 ```
 
-**For other MCP clients:**
-- **MCP Endpoint:** `http://your-server:8080/mcp`
-- **Transport:** SSE (Server-Sent Events) or WebSocket
-- **Authentication:** Uses same auth as main API (if configured)
+4. **Restart Claude Desktop** to load the MCP server
+
+#### Claude Code (CLI)
+
+1. **Create/edit MCP config file:**
+```bash
+# Default location
+~/.config/claude-code/mcp.json
+```
+
+2. **Add your server configuration:**
+```json
+{
+  "servers": {
+    "docker-revp": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-fetch",
+        "http://your-server:8080/mcp"
+      ],
+      "env": {
+        "DESCRIPTION": "Docker RevP container monitoring"
+      }
+    }
+  }
+}
+```
+
+3. **Reload MCP configuration:**
+```bash
+claude-code --reload-mcp
+```
+
+#### Claude Web (claude.ai)
+
+Claude Web doesn't directly support custom MCP servers. However, you can:
+
+1. **Use Claude Projects** with API documentation
+2. **Create a Custom GPT** that calls your API
+3. **Use browser extensions** that add MCP support (community-driven)
+
+#### VS Code
+
+**Option 1: Claude Dev Extension**
+
+1. **Install "Claude Dev" extension** from VS Code marketplace
+2. **Add to VS Code settings.json:**
+```json
+{
+  "claude.mcpServers": {
+    "docker-revp": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-fetch",
+        "http://your-server:8080/mcp"
+      ]
+    }
+  }
+}
+```
+
+**Option 2: MCP Client Extension**
+
+1. **Install "Model Context Protocol" extension**
+2. **Configure in settings.json:**
+```json
+{
+  "mcp.servers": [
+    {
+      "name": "docker-revp",
+      "url": "http://your-server:8080/mcp",
+      "transport": "sse"
+    }
+  ]
+}
+```
+
+#### ChatGPT
+
+ChatGPT doesn't natively support MCP, but you can:
+
+1. **Create a Custom GPT** with actions:
+   - Go to ChatGPT → Explore → Create a GPT
+   - Add Actions → Import OpenAPI schema from `http://your-server:8080/openapi.json`
+   - Configure authentication if needed
+
+2. **Use GPT Builder Actions:**
+```yaml
+openapi: 3.0.0
+servers:
+  - url: http://your-server:8080
+paths:
+  /containers:
+    get:
+      operationId: listContainers
+      summary: List all containers
+  /health/detailed:
+    get:
+      operationId: getHealth
+      summary: Get system health
+```
+
+#### Gemini
+
+Gemini doesn't support MCP directly, but alternatives include:
+
+1. **Google AI Studio Extensions** (when available)
+2. **Vertex AI Extensions:**
+   - Create a Cloud Function that calls your MCP endpoint
+   - Register as Vertex AI extension
+3. **API Integration via Code Interpreter:**
+   - Provide API documentation in context
+   - Use Gemini's code execution to call your API
+
+### MCP Connection Options
+
+**Direct HTTP Connection:**
+```json
+{
+  "command": "mcp-client-http",
+  "args": ["--url", "http://your-server:8080/mcp"]
+}
+```
+
+**With Authentication:**
+```json
+{
+  "command": "npx",
+  "args": ["@modelcontextprotocol/server-fetch", "http://your-server:8080/mcp"],
+  "env": {
+    "AUTHORIZATION": "Bearer your-api-key"
+  }
+}
+```
+
+**Docker Network (for local development):**
+```json
+{
+  "command": "npx",
+  "args": ["@modelcontextprotocol/server-fetch", "http://revp-api:8080/mcp"]
+}
+```
+
+### Troubleshooting MCP Connections
+
+1. **Test MCP endpoint:**
+```bash
+curl http://your-server:8080/mcp
+```
+
+2. **Verify server is running:**
+```bash
+docker-compose ps
+curl http://your-server:8080/health
+```
+
+3. **Check logs for MCP mounting:**
+```bash
+docker-compose logs revp-api | grep MCP
+```
+
+4. **Common issues:**
+   - **Connection refused**: Check firewall/port forwarding
+   - **404 Not Found**: Ensure FastAPI-MCP is installed
+   - **Auth errors**: Verify API key configuration
+   - **CORS errors**: May need to configure CORS for browser-based clients
 
 ### Example AI Interactions
 
