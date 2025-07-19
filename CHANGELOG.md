@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/snadboy/docker-revp/compare/v1.3.0...v1.3.1) (2025-07-19)
+
+
+### Bug Fixes
+
+* correct port mapping and health check for docker-revp ([3b85217](https://github.com/snadboy/docker-revp/commit/3b85217c45f65a0b93f4070885ef0cd757311ee4))
+
 # [1.3.0](https://github.com/snadboy/docker-revp/compare/v1.2.0...v1.3.0) (2025-07-19)
 
 
