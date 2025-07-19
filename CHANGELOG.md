@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/snadboy/docker-revp/compare/v1.3.1...v1.4.0) (2025-07-19)
+
+
+### Features
+
+* add WebSocket support for containers ([84874b2](https://github.com/snadboy/docker-revp/commit/84874b2210476923d330a501f45607ef65fb00ab))
+
 ## [1.3.1](https://github.com/snadboy/docker-revp/compare/v1.3.0...v1.3.1) (2025-07-19)
 
 
