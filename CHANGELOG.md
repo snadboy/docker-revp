@@ -1,3 +1,31 @@
+# [2.0.0](https://github.com/snadboy/docker-revp/compare/v1.4.0...v2.0.0) (2025-07-19)
+
+
+* feat\!: implement multi-port container support with breaking changes ([6867b5d](https://github.com/snadboy/docker-revp/commit/6867b5ded9fc5cd99292dd696d6473113dcede38))
+
+
+### BREAKING CHANGES
+
+* Label format changed from snadboy.revp.container-port + snadboy.revp.domain to snadboy.revp.{PORT}.{PROPERTY}
+
+- Add ServiceInfo class for individual service configurations within containers
+- Redesign ContainerInfo class to support multiple services per container
+- Update route management to handle port-based service identification
+- Modify Caddy route IDs to include port: revp_route_{container_id}_{port}
+- Update containers API to return services array instead of single backend_url
+- Enhance dashboard to display multi-port services with proper UI
+- Convert docker-compose.yml examples to new port-based label format
+- Update README documentation with new label format and examples
+- Add CSS styling for service sections in dashboard
+- Remove legacy single-service support (no backward compatibility)
+
+Fixes dashboard containers tab showing no entries by updating API structure
+to work with new multi-port implementation.
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 # [1.4.0](https://github.com/snadboy/docker-revp/compare/v1.3.1...v1.4.0) (2025-07-19)
 
 
