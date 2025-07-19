@@ -53,7 +53,7 @@ class CaddyManager:
         
         caddy_logger.info(
             f"Adding route: {container.domain} -> {container.backend_url} "
-            f"(force_ssl: {container.force_ssl})"
+            f"(force_ssl: {container.force_ssl}, websocket: {container.support_websocket})"
         )
         
         try:
@@ -113,30 +113,80 @@ class CaddyManager:
         # Use resolved_host_port if available, otherwise fall back to container_port
         backend_port = container.resolved_host_port if container.resolved_host_port else container.container_port
         
-        config = {
-            "@id": f"revp_route_{container.container_id}",
-            "match": [{"host": [container.domain]}],
-            "handle": [{
-                "handler": "reverse_proxy",
-                "upstreams": [{
-                    "dial": f"{container.host_ip}:{backend_port}"
-                }],
-                "transport": {
-                    "protocol": "http",
-                    "tls": {} if container.backend_proto == "https" else None
-                }
-            }]
+        # Build handlers list
+        handlers = []
+        
+        # If force_ssl is true, add HTTPS redirect for HTTP requests
+        if container.force_ssl:
+            # Add a handler that redirects HTTP to HTTPS
+            handlers.append({
+                "handler": "static_response",
+                "headers": {
+                    "Location": ["https://{http.request.host}{http.request.uri}"]
+                },
+                "status_code": 308
+            })
+        
+        # Add the reverse proxy handler
+        reverse_proxy_handler = {
+            "handler": "reverse_proxy",
+            "upstreams": [{
+                "dial": f"{container.host_ip}:{backend_port}"
+            }],
+            "transport": {
+                "protocol": "http",
+                "tls": {} if container.backend_proto == "https" else None
+            }
         }
         
+        # Add websocket support if enabled
+        if container.support_websocket:
+            reverse_proxy_handler["headers"] = {
+                "request": {
+                    "set": {
+                        "Connection": ["{http.request.header.Connection}"],
+                        "Upgrade": ["{http.request.header.Upgrade}"]
+                    }
+                }
+            }
+        
         # Remove None values
-        if config["handle"][0]["transport"]["tls"] is None:
-            del config["handle"][0]["transport"]["tls"]
+        if reverse_proxy_handler["transport"]["tls"] is None:
+            del reverse_proxy_handler["transport"]["tls"]
         
         # Handle backend path if not root
         if container.backend_path != "/":
-            config["handle"][0]["rewrite"] = {
+            reverse_proxy_handler["rewrite"] = {
                 "strip_path_prefix": container.backend_path.rstrip('/')
             }
+        
+        handlers.append(reverse_proxy_handler)
+        
+        # Build the route configuration
+        config = {
+            "@id": f"revp_route_{container.container_id}",
+            "match": [{"host": [container.domain]}],
+            "handle": handlers if len(handlers) > 1 else [handlers[0]]
+        }
+        
+        # If force_ssl is true, we need to make sure HTTPS redirect only happens on HTTP
+        if container.force_ssl and len(handlers) > 1:
+            # Create two routes: one for HTTP (redirect) and one for HTTPS (proxy)
+            # This requires returning a list of routes, which current code doesn't support
+            # So instead, we'll use a subroute with conditional handling
+            config["handle"] = [{
+                "handler": "subroute",
+                "routes": [
+                    {
+                        "match": [{"protocol": "http"}],
+                        "handle": [handlers[0]]  # Redirect handler
+                    },
+                    {
+                        "match": [{"protocol": "https"}],
+                        "handle": [handlers[1]]  # Reverse proxy handler
+                    }
+                ]
+            }]
         
         return config
     

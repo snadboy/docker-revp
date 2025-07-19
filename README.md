@@ -384,6 +384,7 @@ Add these labels to your Docker containers to enable reverse proxy:
 | `snadboy.revp.backend-proto` | No | `https` | Backend protocol (`http` or `https`) |
 | `snadboy.revp.backend-path` | No | `/` | Backend path |
 | `snadboy.revp.force-ssl` | No | `true` | Force SSL/HTTPS |
+| `snadboy.revp.support-websocket` | No | `false` | Enable WebSocket support |
 
 **Important Note about Container Port:**
 - `container-port` refers to the port your application listens on **INSIDE** the Docker container
@@ -405,6 +406,7 @@ services:
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
       - "snadboy.revp.force-ssl=true"
+      - "snadboy.revp.support-websocket=false"
 ```
 
 ## API Endpoints

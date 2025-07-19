@@ -28,6 +28,7 @@ class ContainerInfo:
         self.backend_proto = labels.get("snadboy.revp.backend-proto", "https")
         self.backend_path = labels.get("snadboy.revp.backend-path", "/")
         self.force_ssl = labels.get("snadboy.revp.force-ssl", "true").lower() == "true"
+        self.support_websocket = labels.get("snadboy.revp.support-websocket", "false").lower() == "true"
         
         # Port mapping will be resolved later
         self.resolved_host_port = None
@@ -85,6 +86,7 @@ class ContainerInfo:
             "domain": self.domain,
             "backend_url": self.backend_url,
             "force_ssl": self.force_ssl,
+            "support_websocket": self.support_websocket,
             "labels": self.labels,
             "last_seen": self.last_seen.isoformat(),
             "container_port": self.container_port,

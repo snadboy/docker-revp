@@ -65,33 +65,7 @@ services:
       - ./caddy/config:/config
     restart: unless-stopped
 
-    # Basic Caddyfile for testing
-    # command: |
-    #   sh -c 'echo "# Basic Caddy configuration for testing
-
-    #   # Enable admin API
-    #   {
-    #     admin 0.0.0.0:2019
-    #   }
-
-    #   # Default response for unmatched domains
-    #   :80 {
-    #     respond \"Caddy is running - Docker Reverse Proxy will manage routes\" 200
-    #   }" > /tmp/Caddyfile && caddy run --config /tmp/Caddyfile'
-
-  # Example web service with proper labels
-  test-web:
-    image: nginx:alpine
-    container_name: test-web
-    labels:
-      - "snadboy.revp.domain=test.snadboy.com"
-      - "snadboy.revp.container-port=80"
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=false"
-    restart: unless-stopped
-
-  # Example service 1: Whoami
+    # Example service 1: Whoami
   whoami1:
     image: traefik/whoami
     container_name: whoami1
@@ -103,6 +77,8 @@ services:
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
       - "snadboy.revp.force-ssl=true"
+      - "snadboy.revp.support-websocket=false" 
+
     restart: unless-stopped
 
   # Example service 2: Whoami
@@ -117,6 +93,7 @@ services:
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
       - "snadboy.revp.force-ssl=true"
+      - "snadboy.revp.support-websocket=true" 
     restart: unless-stopped
 
 volumes:
