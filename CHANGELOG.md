@@ -1,3 +1,11 @@
+# [1.3.0](https://github.com/snadboy/docker-revp/compare/v1.2.0...v1.3.0) (2025-07-19)
+
+
+### Features
+
+* add Model Context Protocol (MCP) integration ([5fa4677](https://github.com/snadboy/docker-revp/commit/5fa4677670aa807298dfd628738104de4169aa28))
+* improve route management and container reconciliation ([bb8441d](https://github.com/snadboy/docker-revp/commit/bb8441d775e762aa53b09d65ab5e17ac3fe5a0ec))
+
 # [2.0.0](https://github.com/snadboy/docker-revp/compare/v1.2.0...v2.0.0) (2025-07-15)
 
 
