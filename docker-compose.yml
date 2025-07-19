@@ -1,9 +1,13 @@
-version: '3.8'
-
 services:
   docker-revp:
     build: .
     container_name: docker-revp
+    labels:
+      - "snadboy.revp.container-port=8080" # Uses the CONTAINER port (8080)
+      - "snadboy.revp.domain=revp.snadboy.com"
+      - "snadboy.revp.backend-proto=http"
+      - "snadboy.revp.backend-path=/"
+      - "snadboy.revp.force-ssl=true" # Force SSL for the API
     user: "1000:1000"
     ports:
       - "8081:8080"
@@ -11,10 +15,9 @@ services:
       # Required environment variables (set in .env file)
       - DOCKER_HOSTS=${DOCKER_HOSTS}
       - SSH_USER=${SSH_USER}
-      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY}
-      
+
       # Optional configuration (defaults provided)
-      - CADDY_API_URL=${CADDY_API_URL:-http://caddy:2019}
+      - CADDY_API_URL=${CADDY_API_URL:-http://vm-switchboard.snadboy.com:2019}
       - RECONCILE_INTERVAL=${RECONCILE_INTERVAL:-300}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}
@@ -24,15 +27,17 @@ services:
     volumes:
       # Mount log directory for persistence
       - ./logs:/var/log/docker-revp
+      # Mount SSH private key for Docker host connections
+      - /home/revp/.ssh/id_revp:/home/app/.ssh/docker_monitor_key:ro
       # Mount SSH directory for debugging (optional)
       - ./ssh-debug:/root/.ssh-debug
     restart: unless-stopped
-    depends_on:
-      - caddy
-    
+    # depends_on:
+    #   - caddycd
+
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -41,36 +46,46 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: caddy
+    environment:
+      - CADDY_ADMIN=0.0.0.0:2019 # Allow external access to admin API
+    labels:
+      # Caddy admin API access
+      - "snadboy.revp.container-port=2019"
+      - "snadboy.revp.domain=caddy-api.snadboy.com"
+      - "snadboy.revp.backend-proto=http"
+      - "snadboy.revp.backend-path=/"
+      - "snadboy.revp.force-ssl=true" 
     ports:
       - "80:80"
       - "443:443"
-      - "2019:2019"  # Admin API
+      - "2019:2019" # Admin API
     volumes:
+      - /home/snadboy/docker/docker-revp/caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./caddy/data:/data
       - ./caddy/config:/config
     restart: unless-stopped
-    
+
     # Basic Caddyfile for testing
-    command: |
-      sh -c 'echo "# Basic Caddy configuration for testing
-      
-      # Enable admin API
-      {
-        admin 0.0.0.0:2019
-      }
-      
-      # Default response for unmatched domains
-      :80 {
-        respond \"Caddy is running - Docker Reverse Proxy will manage routes\" 200
-      }" > /tmp/Caddyfile && caddy run --config /tmp/Caddyfile'
+    # command: |
+    #   sh -c 'echo "# Basic Caddy configuration for testing
+
+    #   # Enable admin API
+    #   {
+    #     admin 0.0.0.0:2019
+    #   }
+
+    #   # Default response for unmatched domains
+    #   :80 {
+    #     respond \"Caddy is running - Docker Reverse Proxy will manage routes\" 200
+    #   }" > /tmp/Caddyfile && caddy run --config /tmp/Caddyfile'
 
   # Example web service with proper labels
   test-web:
     image: nginx:alpine
     container_name: test-web
     labels:
-      - "snadboy.revp.domai1n=test.local"
-      - "snadboy.revp.backend-port=80"
+      - "snadboy.revp.domain=test.snadboy.com"
+      - "snadboy.revp.container-port=80"
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
       - "snadboy.revp.force-ssl=false"
@@ -80,24 +95,29 @@ services:
   whoami1:
     image: traefik/whoami
     container_name: whoami1
+    ports:
+      - "8001:80" # Example: maps host port 8001 to container port 80
     labels:
-      - "snadboy.revp.port=80"
-      - "snadboy.revp.domain=whoami1.${DOMAIN}"
-      - "snadboy.revp.path=/"
-      - "snadboy.revp.title=Whoami Service 1"
-      - "snadboy.revp.description=Test service showing request headers"
-      - "snadboy.revp.scheme=https"
+      - "snadboy.revp.container-port=80" # Uses the CONTAINER port (80)
+      - "snadboy.revp.domain=whoami1.snadboy.com"
+      - "snadboy.revp.backend-proto=http"
+      - "snadboy.revp.backend-path=/"
+      - "snadboy.revp.force-ssl=true"
+    restart: unless-stopped
 
   # Example service 2: Whoami
   whoami2:
     image: traefik/whoami
     container_name: whoami2
+    ports:
+      - "8002:80" # Example: maps host port 8002 to container port 80
     labels:
-      - "snadboy.revp.port=80"
-      - "snadboy.revp.domain=whoami2.${DOMAIN}"
-      - "snadboy.revp.path=/"
-      - "snadboy.revp.title=Whoami Service 2"
-      - "snadboy.revp.description=Another test service"
+      - "snadboy.revp.container-port=80" # Uses the CONTAINER port (80)
+      - "snadboy.revp.domain=whoami2.snadboy.com"
+      - "snadboy.revp.backend-proto=http"
+      - "snadboy.revp.backend-path=/"
+      - "snadboy.revp.force-ssl=true"
+    restart: unless-stopped
 
 volumes:
   caddy_data:

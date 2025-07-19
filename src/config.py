@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Docker hosts configuration
     docker_hosts: str = ""
     ssh_user: str = ""
-    ssh_private_key: str = ""
+    ssh_private_key_path: str = "/home/app/.ssh/docker_monitor_key"
     
     # Caddy configuration
     caddy_api_url: str = "http://caddy:2019"
@@ -114,8 +114,8 @@ class Settings(BaseSettings):
         if not self.ssh_user:
             errors.append("SSH_USER environment variable is required")
         
-        if not self.ssh_private_key:
-            errors.append("SSH_PRIVATE_KEY environment variable is required")
+        if not Path(self.ssh_private_key_path).exists():
+            errors.append(f"SSH private key file not found at {self.ssh_private_key_path}")
         
         if errors:
             raise ValueError("Configuration errors:\n" + "\n".join(errors))

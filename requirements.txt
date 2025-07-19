@@ -1,9 +1,8 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-httpx==0.25.1
-docker==6.1.3
-python-json-logger==2.0.7
-pydantic==2.5.0
-pydantic-settings==2.1.0
-jinja2==3.1.2
-fastapi-mcp>=0.1.0
+fastapi[standard]
+uvicorn[standard]
+httpx
+docker
+python-json-logger
+pydantic
+pydantic-settings
+jinja2

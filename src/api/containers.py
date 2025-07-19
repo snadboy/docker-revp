@@ -1,10 +1,12 @@
 """Container management endpoints for Docker Reverse Proxy."""
 from typing import List, Dict, Any, Optional
+import hashlib
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 from ..logger import api_logger
+from ..docker_monitor import ContainerInfo
 
 
 router = APIRouter(prefix="/containers", tags=["containers"])
@@ -95,10 +97,59 @@ async def list_containers(
                 container_id = container.get("ID", container.get("Id", ""))
                 if not container_id:
                     # Generate a unique ID from container name and host
-                    import hashlib
                     container_id = hashlib.sha256(f"{container_name}@{hostname}".encode()).hexdigest()[:12]
                 
-                # Create container info
+                # Create ContainerInfo object to get backend URL
+                backend_url = None
+                resolved_host_port = None
+                
+                if has_revp:
+                    # Get host IP - use simple resolution for API endpoint
+                    if hostname in ["localhost", "127.0.0.1"]:
+                        host_ip = "host.docker.internal"
+                    else:
+                        try:
+                            import socket
+                            host_ip = socket.gethostbyname(hostname)
+                        except:
+                            host_ip = hostname  # Fallback to hostname
+                    
+                    # Create ContainerInfo object
+                    container_info_obj = ContainerInfo(
+                        container_id=container_id,
+                        host=hostname,
+                        host_ip=host_ip,
+                        labels=processed_revp,
+                        name=container_name
+                    )
+                    
+                    # Try to resolve port mapping from container ports
+                    ports = container.get("Ports", "")
+                    if ports:
+                        # Parse port bindings from Docker output
+                        port_bindings = {}
+                        for port_info in ports.split(','):
+                            port_info = port_info.strip()
+                            if '->' in port_info:
+                                # Format: "0.0.0.0:8080->80/tcp"
+                                host_part, container_part = port_info.split('->', 1)
+                                if ':' in host_part:
+                                    host_port = host_part.split(':')[-1]
+                                    container_port_proto = container_part.strip()
+                                    if container_port_proto not in port_bindings:
+                                        port_bindings[container_port_proto] = []
+                                    port_bindings[container_port_proto].append({
+                                        "HostPort": host_port,
+                                        "HostIp": "0.0.0.0"
+                                    })
+                        
+                        # Resolve port mapping
+                        container_info_obj.resolve_port_mapping(port_bindings)
+                    
+                    backend_url = container_info_obj.backend_url
+                    resolved_host_port = container_info_obj.resolved_host_port
+                
+                # Create container info dictionary
                 container_info = {
                     "id": container_id,
                     "name": container_name,
@@ -107,7 +158,9 @@ async def list_containers(
                     "status": container.get("Status", ""),
                     "image": container.get("Image", ""),
                     "has_revp_config": has_revp,
-                    "labels": processed_revp
+                    "labels": processed_revp,
+                    "backend_url": backend_url,
+                    "resolved_host_port": resolved_host_port
                 }
                 
                 # Apply filter

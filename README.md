@@ -29,7 +29,21 @@ A Python-based Docker container that monitors Docker containers across multiple 
    ```bash
    DOCKER_HOSTS=server1 server2:2222 localhost
    SSH_USER=your-ssh-user
-   SSH_PRIVATE_KEY=your-private-key-content
+   ```
+
+   **📋 SSH Private Key Setup:**
+   
+   Create the ssh-keys directory and copy your private key:
+   
+   ```bash
+   # Create directory
+   mkdir -p ssh-keys
+   
+   # Copy your private key (any type: RSA, ed25519, etc.)
+   cp ~/.ssh/your_private_key ssh-keys/docker_monitor_key
+   
+   # Set proper permissions
+   chmod 600 ssh-keys/docker_monitor_key
    ```
 
 2. **Run with Docker Compose:**
@@ -65,6 +79,10 @@ When connected via MCP, AI agents can access:
 - **`version_info`** - Get version and build information
 - **`metrics`** - Get Prometheus-compatible metrics
 
+### Prerequisites
+
+The MCP connection uses `mcp-remote` which is automatically installed via npx, so no manual installation is required.
+
 ### Setting Up MCP in Different AI Platforms
 
 #### Claude Desktop
@@ -79,7 +97,9 @@ When connected via MCP, AI agents can access:
     "docker-revp": {
       "command": "npx",
       "args": [
-        "@modelcontextprotocol/server-fetch",
+        "-p",
+        "mcp-remote@latest",
+        "mcp-remote",
         "http://your-server:8080/mcp"
       ]
     }
@@ -104,7 +124,9 @@ When connected via MCP, AI agents can access:
     "docker-revp": {
       "command": "npx",
       "args": [
-        "@modelcontextprotocol/server-fetch",
+        "-p",
+        "mcp-remote@latest",
+        "mcp-remote",
         "http://your-server:8080/mcp"
       ],
       "env": {
@@ -140,7 +162,9 @@ Claude Web doesn't directly support custom MCP servers. However, you can:
     "docker-revp": {
       "command": "npx",
       "args": [
-        "@modelcontextprotocol/server-fetch",
+        "-p",
+        "mcp-remote@latest",
+        "mcp-remote",
         "http://your-server:8080/mcp"
       ]
     }
@@ -215,7 +239,12 @@ Gemini doesn't support MCP directly, but alternatives include:
 ```json
 {
   "command": "npx",
-  "args": ["@modelcontextprotocol/server-fetch", "http://your-server:8080/mcp"],
+  "args": [
+    "-p",
+    "mcp-remote@latest", 
+    "mcp-remote",
+    "http://your-server:8080/mcp"
+  ],
   "env": {
     "AUTHORIZATION": "Bearer your-api-key"
   }
@@ -226,7 +255,12 @@ Gemini doesn't support MCP directly, but alternatives include:
 ```json
 {
   "command": "npx",
-  "args": ["@modelcontextprotocol/server-fetch", "http://revp-api:8080/mcp"]
+  "args": [
+    "-p",
+    "mcp-remote@latest",
+    "mcp-remote", 
+    "http://revp-api:8080/mcp"
+  ]
 }
 ```
 
@@ -330,7 +364,7 @@ cp .env.example .env
 |----------|----------|---------|-------------|
 | `DOCKER_HOSTS` | Yes | - | Space-separated list of Docker hosts (format: `host` or `host:port`) |
 | `SSH_USER` | Yes | - | SSH username for all Docker hosts |
-| `SSH_PRIVATE_KEY` | Yes | - | SSH private key content |
+| SSH Private Key | Yes | - | Mounted from `./ssh-keys/docker_monitor_key` |
 | `CADDY_API_URL` | No | `http://caddy:2019` | Caddy Admin API endpoint |
 | `RECONCILE_INTERVAL` | No | `300` | Reconciliation interval in seconds |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
@@ -346,10 +380,16 @@ Add these labels to your Docker containers to enable reverse proxy:
 | Label | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `snadboy.revp.domain` | Yes | - | Incoming domain (e.g., `app.example.com`) |
-| `snadboy.revp.backend-port` | Yes | - | Container port to proxy to |
+| `snadboy.revp.container-port` | Yes | - | Container port your app listens on (e.g., `80`, `3000`) |
 | `snadboy.revp.backend-proto` | No | `https` | Backend protocol (`http` or `https`) |
 | `snadboy.revp.backend-path` | No | `/` | Backend path |
 | `snadboy.revp.force-ssl` | No | `true` | Force SSL/HTTPS |
+
+**Important Note about Container Port:**
+- `container-port` refers to the port your application listens on **INSIDE** the Docker container
+- This is NOT the external/host port that you map to
+- Example: If your container runs nginx on port 80 but you map it as `8080:80`, use `container-port=80`
+- The system will automatically resolve this to the correct host port (8080 in this example)
 
 ### Example Container Labels
 
@@ -357,9 +397,11 @@ Add these labels to your Docker containers to enable reverse proxy:
 services:
   webapp:
     image: nginx:alpine
+    ports:
+      - "8080:80"  # Maps host port 8080 to container port 80
     labels:
       - "snadboy.revp.domain=app.example.com"
-      - "snadboy.revp.backend-port=80"
+      - "snadboy.revp.container-port=80"  # Use the CONTAINER port (80), not host port (8080)
       - "snadboy.revp.backend-proto=http"
       - "snadboy.revp.backend-path=/"
       - "snadboy.revp.force-ssl=true"
@@ -418,6 +460,57 @@ services:
   }
 }
 ```
+
+## SSH User Requirements
+
+The SSH user specified in `SSH_USER` must have the following permissions on each Docker host:
+
+### Required Permissions
+
+1. **Docker Group Membership**
+   ```bash
+   # Add user to docker group on each host
+   sudo usermod -aG docker your-ssh-user
+   ```
+
+2. **Docker Socket Access**
+   - The user must be able to access `/var/run/docker.sock`
+   - This is typically granted by docker group membership
+   - Verify with: `docker ps` (should work without sudo)
+
+3. **SSH Key Authentication**
+   - Password authentication is not supported
+   - Public key must be in `~/.ssh/authorized_keys` on each host
+   - Private key mounted from `./ssh-keys/docker_monitor_key`
+
+4. **Network Access**
+   - SSH access to each host (default port 22 or custom port)
+   - Ability to connect to Docker daemon (unix socket or TCP)
+
+### Verification Commands
+
+Run these commands on each Docker host to verify permissions:
+
+```bash
+# Test Docker access (should work without sudo)
+docker ps
+docker version
+
+# Test Docker events (used by the monitor)
+timeout 5 docker events
+
+# Verify user is in docker group
+groups $USER | grep docker
+
+# Test SSH key authentication
+ssh-add -l  # Should list your key
+```
+
+### Common Issues
+
+- **Permission denied accessing Docker**: Add user to docker group and logout/login
+- **Docker daemon not accessible**: Ensure Docker service is running
+- **SSH key issues**: Verify key format and permissions (600 for private key)
 
 ## SSH Configuration
 

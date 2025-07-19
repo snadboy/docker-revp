@@ -23,21 +23,57 @@ class ContainerInfo:
         
         # Extract reverse proxy configuration
         self.domain = labels.get("snadboy.revp.domain", "")
-        self.backend_port = labels.get("snadboy.revp.backend-port", "")
+        # Support both new container-port and legacy backend-port for backward compatibility
+        self.container_port = labels.get("snadboy.revp.container-port", "") or labels.get("snadboy.revp.backend-port", "")
         self.backend_proto = labels.get("snadboy.revp.backend-proto", "https")
         self.backend_path = labels.get("snadboy.revp.backend-path", "/")
         self.force_ssl = labels.get("snadboy.revp.force-ssl", "true").lower() == "true"
+        
+        # Port mapping will be resolved later
+        self.resolved_host_port = None
     
     @property
     def is_valid(self) -> bool:
         """Check if container has valid reverse proxy configuration."""
-        return bool(self.domain and self.backend_port)
+        return bool(self.domain and self.container_port)
     
     @property
     def backend_url(self) -> str:
         """Get the backend URL for this container."""
         path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
-        return f"{self.backend_proto}://{self.host_ip}:{self.backend_port}{path}"
+        # Use resolved host port if available, otherwise fall back to container port
+        port = self.resolved_host_port if self.resolved_host_port else self.container_port
+        return f"{self.backend_proto}://{self.host_ip}:{port}{path}"
+    
+    def resolve_port_mapping(self, port_bindings: dict) -> None:
+        """Resolve container port to host port from Docker port bindings.
+        
+        Args:
+            port_bindings: Docker NetworkSettings.Ports dict
+        """
+        if not self.container_port or not port_bindings:
+            return
+        
+        # Look for the container port in the bindings
+        # Docker uses format like "80/tcp", "443/tcp"
+        tcp_key = f"{self.container_port}/tcp"
+        udp_key = f"{self.container_port}/udp"
+        
+        # Check TCP first (most common)
+        if tcp_key in port_bindings and port_bindings[tcp_key]:
+            # port_bindings[tcp_key] is a list of dicts like [{"HostIp": "0.0.0.0", "HostPort": "8080"}]
+            # Take the first binding
+            binding = port_bindings[tcp_key][0]
+            self.resolved_host_port = binding.get("HostPort")
+        elif udp_key in port_bindings and port_bindings[udp_key]:
+            # Check UDP as fallback
+            binding = port_bindings[udp_key][0]
+            self.resolved_host_port = binding.get("HostPort")
+        else:
+            # Port not published or not found
+            docker_logger.warning(
+                f"Container {self.name}: port {self.container_port} is not published to host"
+            )
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -50,7 +86,9 @@ class ContainerInfo:
             "backend_url": self.backend_url,
             "force_ssl": self.force_ssl,
             "labels": self.labels,
-            "last_seen": self.last_seen.isoformat()
+            "last_seen": self.last_seen.isoformat(),
+            "container_port": self.container_port,
+            "resolved_host_port": self.resolved_host_port
         }
 
 
@@ -69,6 +107,10 @@ class DockerMonitor:
         """Start monitoring all configured Docker hosts."""
         self._running = True
         docker_logger.info("Starting Docker monitor")
+        
+        # Clean up stale Revp routes on startup
+        if self.caddy_manager:
+            await self.caddy_manager.cleanup_revp_routes(self)
         
         # Start monitoring each host
         for alias, host, port in self.hosts_config:
@@ -174,19 +216,35 @@ class DockerMonitor:
             await self._handle_container_start(alias, host, host_ip, container_id)
         elif action in ["stop", "pause", "die", "kill"]:
             await self._handle_container_stop(container_id)
+        elif action == "restart":
+            # Handle restart as stop followed by start
+            await self._handle_container_stop(container_id)
+            await self._handle_container_start(alias, host, host_ip, container_id)
     
     async def _handle_container_start(self, alias: str, host: str, host_ip: str, container_id: str) -> None:
         """Handle container start event."""
+        docker_logger.info(f"Processing container start for {container_id} on {host}")
         try:
+            docker_logger.info(f"Getting container info for {container_id} using alias {alias}")
             # Get container details
-            container_info = await self._get_container_info(alias, container_id)
+            try:
+                container_info = await self._get_container_info(alias, container_id)
+                docker_logger.info(f"Container info result: {type(container_info)} - {bool(container_info)}")
+            except Exception as inspect_error:
+                docker_logger.error(f"Exception getting container info for {container_id}: {inspect_error}")
+                return
             
             if not container_info:
+                docker_logger.warning(f"Could not get container info for {container_id}")
                 return
             
             # Check if container has our labels
-            labels = container_info.get("Labels", {})
+            # Docker inspect returns labels under Config.Labels
+            config = container_info.get("Config", {})
+            labels = config.get("Labels", {})
+            docker_logger.info(f"Container {container_id} labels: {labels}")
             if "snadboy.revp.domain" not in labels:
+                docker_logger.info(f"Container {container_id} does not have snadboy.revp.domain label")
                 return
             
             # Create ContainerInfo object
@@ -200,9 +258,14 @@ class DockerMonitor:
             
             if not container.is_valid:
                 docker_logger.warning(
-                    f"Container {container.name} has snadboy.revp.domain but missing backend-port"
+                    f"Container {container.name} has snadboy.revp.domain but missing container-port"
                 )
                 return
+            
+            # Resolve container port to host port
+            network_settings = container_info.get("NetworkSettings", {})
+            port_bindings = network_settings.get("Ports", {})
+            container.resolve_port_mapping(port_bindings)
             
             # Store container
             self.containers[container_id] = container
@@ -214,14 +277,28 @@ class DockerMonitor:
             
             # Update Caddy
             if self.caddy_manager:
+                docker_logger.info(f"Adding Caddy route for {container.domain}")
                 await self.caddy_manager.add_route(container)
+                docker_logger.info(f"Successfully added Caddy route for {container.domain}")
+            else:
+                docker_logger.error("CaddyManager is not available!")
             
         except Exception as e:
             docker_logger.error(f"Error handling container start: {e}")
     
     async def _handle_container_stop(self, container_id: str) -> None:
         """Handle container stop event."""
+        # Try to find container by both full and short ID
         container = self.containers.get(container_id)
+        
+        if not container:
+            # Try with short ID (first 12 chars)
+            short_id = container_id[:12]
+            for cid, cont in self.containers.items():
+                if cid.startswith(short_id) or cid == short_id:
+                    container = cont
+                    container_id = cid  # Use the stored ID for removal
+                    break
         
         if not container:
             return
@@ -234,8 +311,9 @@ class DockerMonitor:
         if self.caddy_manager:
             await self.caddy_manager.remove_route(container)
         
-        # Remove from tracking
-        del self.containers[container_id]
+        # Remove from tracking (use the actual key found)
+        if container_id in self.containers:
+            del self.containers[container_id]
     
     async def _get_container_info(self, alias: str, container_id: str) -> Optional[dict]:
         """Get detailed container information."""
@@ -245,6 +323,7 @@ class DockerMonitor:
                 "inspect", container_id
             ]
             
+            docker_logger.debug(f"Running docker inspect for {container_id} with alias {alias}")
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -254,14 +333,19 @@ class DockerMonitor:
             stdout, stderr = await result.communicate()
             
             if result.returncode != 0:
-                docker_logger.error(f"Failed to inspect container: {stderr.decode()}")
+                docker_logger.error(f"Failed to inspect container {container_id}: {stderr.decode()}")
                 return None
             
             containers = json.loads(stdout.decode())
-            return containers[0] if containers else None
+            container_info = containers[0] if containers else None
+            if container_info:
+                docker_logger.debug(f"Successfully got container info for {container_id}")
+            else:
+                docker_logger.warning(f"No container info returned for {container_id}")
+            return container_info
             
         except Exception as e:
-            docker_logger.error(f"Error getting container info: {e}")
+            docker_logger.error(f"Error getting container info for {container_id}: {e}")
             return None
     
     async def _reconciliation_loop(self) -> None:
@@ -271,6 +355,11 @@ class DockerMonitor:
         while self._running:
             try:
                 docker_logger.info("Starting reconciliation")
+                
+                # Check if Caddy still has our routes
+                if self.caddy_manager:
+                    await self._check_and_restore_routes()
+                
                 await self._reconcile_all_hosts()
                 docker_logger.info("Reconciliation completed")
             except Exception as e:
@@ -278,17 +367,78 @@ class DockerMonitor:
             
             await asyncio.sleep(settings.reconcile_interval)
     
+    async def _check_and_restore_routes(self) -> None:
+        """Check if our tracked routes still exist in Caddy and restore missing ones."""
+        # Skip route restoration if we have no containers tracked yet
+        # This happens after startup cleanup - containers will be discovered in reconciliation
+        if not self.containers:
+            docker_logger.debug("No containers tracked yet, skipping route restoration check")
+            return
+            
+        try:
+            # Get current Caddy routes
+            caddy_config = await self.caddy_manager.get_current_config()
+            current_routes = []
+            
+            # Extract route IDs from Caddy config
+            servers = caddy_config.get("apps", {}).get("http", {}).get("servers", {})
+            for server_name, server_config in servers.items():
+                routes = server_config.get("routes", [])
+                for route in routes:
+                    route_id = route.get("@id", "")
+                    # Only track routes with revp_route_ prefix (new format)
+                    if route_id.startswith("revp_route_"):
+                        current_routes.append(route_id)
+                    # Skip legacy route_ format - only manage revp_route_ prefixed routes
+                    elif route_id.startswith("route_"):
+                        docker_logger.debug(f"Ignoring legacy route_ format: {route_id}")
+            
+            # Check each tracked container
+            missing_routes = []
+            for container_id, container in self.containers.items():
+                # Only check for revp_route_ format
+                expected_route_id = f"revp_route_{container_id}"
+                
+                if expected_route_id not in current_routes:
+                    missing_routes.append(container)
+            
+            # Restore missing routes
+            if missing_routes:
+                docker_logger.warning(f"Found {len(missing_routes)} missing routes in Caddy, restoring...")
+                for container in missing_routes:
+                    try:
+                        docker_logger.info(f"Restoring route for {container.domain}")
+                        await self.caddy_manager.add_route(container)
+                    except Exception as e:
+                        docker_logger.error(f"Failed to restore route for {container.domain}: {e}")
+                        
+        except Exception as e:
+            docker_logger.error(f"Error checking routes: {e}")
+    
     async def _reconcile_all_hosts(self) -> None:
         """Reconcile containers from all hosts."""
+        docker_logger.info(f"Reconciling {len(self.hosts_config)} hosts")
         seen_containers: Set[str] = set()
         
         # Check all hosts
         tasks = []
         for alias, host, port in self.hosts_config:
+            docker_logger.info(f"Adding reconciliation task for {host} (alias: {alias})")
             task = self._reconcile_host(alias, host, port, seen_containers)
             tasks.append(task)
         
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Log any exceptions
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                host_info = self.hosts_config[i]
+                docker_logger.error(f"Reconciliation failed for {host_info[1]}: {result}")
+        
+        # FORCE ROUTE CREATION: If we have no tracked containers, manually process all RevP containers
+        if not self.containers:
+            docker_logger.info("No tracked containers found, forcing route creation for all RevP containers")
+            await self._force_route_creation()
         
         # Remove containers that are no longer running
         to_remove = []
@@ -302,9 +452,60 @@ class DockerMonitor:
         for container_id in to_remove:
             await self._handle_container_stop(container_id)
     
+    async def _force_route_creation(self) -> None:
+        """Force route creation for all containers with RevP labels."""
+        try:
+            # Get all containers from API
+            for alias, host, port in self.hosts_config:
+                docker_logger.info(f"Force processing containers on {host}")
+                docker_logger.debug(f"Getting host IP for {host}")
+                host_ip = await self._get_host_ip(alias, host)
+                docker_logger.debug(f"Host IP for {host}: {host_ip}")
+                
+                # Get all containers
+                docker_logger.debug(f"About to call list_containers_sync for {host}")
+                containers = self.list_containers_sync(host)
+                docker_logger.info(f"Found {len(containers)} total containers from force route creation")
+                
+                for container_data in containers:
+                    # Parse labels properly (same logic as API)
+                    labels_str = container_data.get("Labels", "")
+                    if labels_str:
+                        labels = {}
+                        for label in labels_str.split(','):
+                            if '=' in label:
+                                key, value = label.split('=', 1)
+                                labels[key] = value
+                    else:
+                        labels = {}
+                    
+                    # Check for revp labels
+                    revp_labels = {k: v for k, v in labels.items() if k.startswith("snadboy.revp.")}
+                    has_revp = bool(revp_labels)
+                    
+                    if has_revp:
+                        container_id = container_data['ID']
+                        container_name = container_data.get('Names', '').lstrip('/') if container_data.get('Names') else ''
+                        docker_logger.info(f"Force creating route for {container_name} ({container_id})")
+                        
+                        # Process this container
+                        try:
+                            await self._handle_container_start(alias, host, host_ip, container_id)
+                        except Exception as container_error:
+                            docker_logger.error(f"Error processing container {container_id}: {container_error}")
+                    else:
+                        container_name = container_data.get('Names', '').lstrip('/') if container_data.get('Names') else 'unknown'
+                        docker_logger.debug(f"Skipping container {container_name} - no RevP config")
+                        
+        except Exception as e:
+            import traceback
+            docker_logger.error(f"Error in force route creation: {e}")
+            docker_logger.error(f"Traceback: {traceback.format_exc()}")
+    
     async def _reconcile_host(self, alias: str, host: str, port: int, seen_containers: Set[str]) -> None:
         """Reconcile containers from a specific host."""
         try:
+            docker_logger.info(f"Reconciling host {host} with alias {alias}")
             host_ip = await self._get_host_ip(alias, host)
             
             # List running containers
@@ -326,7 +527,10 @@ class DockerMonitor:
                 return
             
             # Process each container
-            for line in stdout.decode().strip().split('\n'):
+            containers_found = stdout.decode().strip().split('\n')
+            docker_logger.info(f"Found {len([l for l in containers_found if l])} containers on {host}")
+            
+            for line in containers_found:
                 if not line:
                     continue
                 
@@ -342,6 +546,7 @@ class DockerMonitor:
                     # Check if we're already tracking this container
                     if container_id not in self.containers:
                         # Get full container info and check labels
+                        docker_logger.info(f"Found new container {container_id} on {host}, processing...")
                         await self._handle_container_start(alias, host, host_ip, container_id)
                     else:
                         # Update last seen time
@@ -408,9 +613,10 @@ class DockerMonitor:
                 if line:
                     try:
                         containers.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError as e:
+                        docker_logger.error(f"Error parsing container JSON: {e} - Line: {line[:100]}")
             
+            docker_logger.info(f"Successfully parsed {len(containers)} containers from {hostname}")
             return containers
             
         except Exception as e:

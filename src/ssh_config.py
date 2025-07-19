@@ -35,19 +35,37 @@ class SSHConfigManager:
             raise
     
     def _write_private_key(self) -> None:
-        """Write SSH private key to file with proper permissions."""
-        ssh_logger.info(f"Writing SSH private key to {self.key_file}")
+        """Handle SSH private key - either use mounted location directly or copy if needed."""
+        mounted_key_path = Path(settings.ssh_private_key_path)
         
-        # Convert literal \n to actual newlines and ensure proper format
-        key_content = settings.ssh_private_key.replace('\\n', '\n')
-        if not key_content.endswith('\n'):
-            key_content += '\n'
-        self.key_file.write_text(key_content)
-        
-        # Set strict permissions (600)
-        os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)
-        
-        ssh_logger.info("SSH private key written successfully")
+        # If the key is already in the right place, just ensure permissions
+        if str(self.key_file) == str(mounted_key_path):
+            ssh_logger.info(f"SSH private key already at {self.key_file}, checking permissions")
+            if mounted_key_path.exists():
+                # Just ensure permissions are correct
+                try:
+                    os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)
+                    ssh_logger.info("SSH private key permissions verified")
+                except Exception as e:
+                    ssh_logger.warning(f"Could not update key permissions: {e}")
+            else:
+                raise FileNotFoundError(f"SSH private key not found at {mounted_key_path}")
+        else:
+            # Copy from mounted location
+            ssh_logger.info(f"Copying SSH private key from {mounted_key_path} to {self.key_file}")
+            
+            try:
+                key_content = mounted_key_path.read_text()
+                self.key_file.write_text(key_content)
+                
+                # Set strict permissions (600)
+                os.chmod(self.key_file, stat.S_IRUSR | stat.S_IWUSR)
+                
+                ssh_logger.info("SSH private key copied successfully")
+                
+            except Exception as e:
+                ssh_logger.error(f"Failed to copy SSH private key: {e}")
+                raise
     
     def _generate_ssh_config(self) -> None:
         """Generate SSH config file for Docker hosts."""
@@ -83,6 +101,7 @@ class SSHConfigManager:
                 f"    User {settings.ssh_user}",
                 f"    Port {port}",
                 f"    IdentityFile {self.key_file}",
+                "    PasswordAuthentication no",
                 "    StrictHostKeyChecking accept-new",
                 "    ServerAliveInterval 60",
                 "    ServerAliveCountMax 3",

@@ -299,8 +299,9 @@ class Dashboard {
                 ? container.labels['snadboy.revp.domain']
                 : '-';
             
-            const backend = container.has_revp_config && container.labels['snadboy.revp.backend-port']
-                ? `${container.labels['snadboy.revp.backend-proto'] || 'https'}://${container.host}:${container.labels['snadboy.revp.backend-port']}`
+            // Use backend_url from the API which includes the resolved host port
+            const backend = container.has_revp_config && container.backend_url
+                ? container.backend_url
                 : '-';
             
             // Generate a unique ID if container.id is empty
@@ -348,14 +349,34 @@ class Dashboard {
             
             Object.entries(container.labels).forEach(([key, value]) => {
                 if (key.startsWith('snadboy.revp.')) {
-                    labelsHtml += `
-                        <div class="label-item">
-                            <span class="label-key">${key}:</span>
-                            <span class="label-value">${value || '(empty)'}</span>
-                        </div>
-                    `;
+                    // Show container-port with resolved host port info
+                    if (key === 'snadboy.revp.container-port' && container.resolved_host_port) {
+                        labelsHtml += `
+                            <div class="label-item">
+                                <span class="label-key">${key}:</span>
+                                <span class="label-value">${value} → ${container.resolved_host_port} (host)</span>
+                            </div>
+                        `;
+                    } else {
+                        labelsHtml += `
+                            <div class="label-item">
+                                <span class="label-key">${key}:</span>
+                                <span class="label-value">${value || '(empty)'}</span>
+                            </div>
+                        `;
+                    }
                 }
             });
+            
+            // Show warning if port is not published
+            if (container.container_port && !container.resolved_host_port) {
+                labelsHtml += `
+                    <div class="label-item" style="color: var(--warning-color);">
+                        <span class="label-key">⚠️ Warning:</span>
+                        <span class="label-value">Port ${container.container_port} is not published to host</span>
+                    </div>
+                `;
+            }
             
             labelsHtml += '</div>';
         }
@@ -470,8 +491,8 @@ class Dashboard {
                     bValue = b.has_revp_config && b.labels['snadboy.revp.domain'] ? b.labels['snadboy.revp.domain'] : '';
                     break;
                 case 'backend':
-                    aValue = a.has_revp_config && a.labels['snadboy.revp.backend-port'] ? a.labels['snadboy.revp.backend-port'] : '';
-                    bValue = b.has_revp_config && b.labels['snadboy.revp.backend-port'] ? b.labels['snadboy.revp.backend-port'] : '';
+                    aValue = a.has_revp_config && a.backend_url ? a.backend_url : '';
+                    bValue = b.has_revp_config && b.backend_url ? b.backend_url : '';
                     break;
                 default:
                     return 0;
