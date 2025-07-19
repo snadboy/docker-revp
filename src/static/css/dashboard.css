@@ -550,6 +550,26 @@ tr:hover {
     word-break: break-all;
 }
 
+/* Service sections for multi-port containers */
+.service-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: var(--hover-color);
+    border-radius: 0.375rem;
+    border: 1px solid var(--border-color);
+}
+
+.service-section h5 {
+    margin-bottom: 0.75rem;
+    color: var(--primary-color);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.service-section:last-child {
+    margin-bottom: 0;
+}
+
 /* Health Cards */
 .health-grid {
     display: grid;

@@ -3,11 +3,10 @@ services:
     build: .
     container_name: docker-revp
     labels:
-      - "snadboy.revp.container-port=8080" # Uses the CONTAINER port (8080)
-      - "snadboy.revp.domain=revp.snadboy.com"
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=true" # Force SSL for the API
+      - "snadboy.revp.8085.domain=revp.snadboy.com"
+      - "snadboy.revp.8085.backend-proto=http"
+      - "snadboy.revp.8085.backend-path=/"
+      - "snadboy.revp.8085.force-ssl=true" # Force SSL for the API
     user: "1000:1000"
     ports:
       - "8081:8085"
@@ -50,11 +49,10 @@ services:
       - CADDY_ADMIN=0.0.0.0:2019 # Allow external access to admin API
     labels:
       # Caddy admin API access
-      - "snadboy.revp.container-port=2019"
-      - "snadboy.revp.domain=caddy-api.snadboy.com"
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=true" 
+      - "snadboy.revp.2019.domain=caddy-api.snadboy.com"
+      - "snadboy.revp.2019.backend-proto=http"
+      - "snadboy.revp.2019.backend-path=/"
+      - "snadboy.revp.2019.force-ssl=true" 
     ports:
       - "80:80"
       - "443:443"
@@ -72,12 +70,11 @@ services:
     ports:
       - "8001:80" # Example: maps host port 8001 to container port 80
     labels:
-      - "snadboy.revp.container-port=80" # Uses the CONTAINER port (80)
-      - "snadboy.revp.domain=whoami1.snadboy.com"
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=true"
-      - "snadboy.revp.support-websocket=false" 
+      - "snadboy.revp.80.domain=whoami1.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=false" 
 
     restart: unless-stopped
 
@@ -88,12 +85,34 @@ services:
     ports:
       - "8002:80" # Example: maps host port 8002 to container port 80
     labels:
-      - "snadboy.revp.container-port=80" # Uses the CONTAINER port (80)
-      - "snadboy.revp.domain=whoami2.snadboy.com"
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=true"
-      - "snadboy.revp.support-websocket=true" 
+      - "snadboy.revp.80.domain=whoami2.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=true" 
+    restart: unless-stopped
+
+  # Example multi-port service: Demonstrates multiple domains for one container
+  multi-port-app:
+    image: traefik/whoami
+    container_name: multi-port-app
+    ports:
+      - "8003:80"   # Main app
+      - "8004:8080" # Admin interface
+    labels:
+      # Main application on port 80
+      - "snadboy.revp.80.domain=app.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=false"
+      
+      # Admin interface on port 8080
+      - "snadboy.revp.8080.domain=admin.snadboy.com"
+      - "snadboy.revp.8080.backend-proto=http"
+      - "snadboy.revp.8080.backend-path=/admin"
+      - "snadboy.revp.8080.force-ssl=true"
+      - "snadboy.revp.8080.support-websocket=true"
     restart: unless-stopped
 
 volumes:

@@ -45,79 +45,82 @@ class CaddyManager:
             caddy_logger.error(f"Caddy connection test failed: {e}")
             return False
     
-    async def add_route(self, container: ContainerInfo) -> None:
+    async def add_route(self, container: ContainerInfo, service: 'ServiceInfo') -> None:
         """Add or update a route in Caddy."""
-        if not container.is_valid:
-            caddy_logger.warning(f"Invalid container configuration for {container.name}")
+        if not service.is_valid:
+            caddy_logger.warning(f"Invalid service configuration for {container.name}:{service.port}")
             return
         
+        backend_url = service.backend_url(container.host_ip)
         caddy_logger.info(
-            f"Adding route: {container.domain} -> {container.backend_url} "
-            f"(force_ssl: {container.force_ssl}, websocket: {container.support_websocket})"
+            f"Adding route: {service.domain} -> {backend_url} "
+            f"(force_ssl: {service.force_ssl}, websocket: {service.support_websocket})"
         )
         
         try:
             # Check if another container is using this domain
-            existing_container_id = self._routes.get(container.domain)
-            if existing_container_id and existing_container_id != container.container_id:
+            existing_container_id = self._routes.get(service.domain)
+            if existing_container_id and existing_container_id != f"{container.container_id}_{service.port}":
                 caddy_logger.warning(
-                    f"Domain {container.domain} already in use by container "
-                    f"{existing_container_id[:12]}, replacing with {container.container_id[:12]}"
+                    f"Domain {service.domain} already in use by {existing_container_id}, replacing with {container.container_id[:12]}:{service.port}"
                 )
             
             # Create the route configuration
-            route_config = self._create_route_config(container)
+            route_config = self._create_route_config(container, service)
             
             # Apply configuration to Caddy
-            await self._apply_route(container.domain, route_config)
+            await self._apply_route(service.domain, route_config)
             
-            # Track the route
-            self._routes[container.domain] = container.container_id
+            # Track the route (use container_id:port as unique identifier)
+            self._routes[service.domain] = f"{container.container_id}_{service.port}"
             
-            caddy_logger.info(f"Successfully added route for {container.domain}")
+            caddy_logger.info(f"Successfully added route for {service.domain}")
             
         except Exception as e:
-            caddy_logger.error(f"Failed to add route for {container.domain}: {e}")
+            caddy_logger.error(f"Failed to add route for {service.domain}: {e}")
             raise
     
     async def remove_route(self, container: ContainerInfo) -> None:
-        """Remove a route from Caddy."""
-        if not container.domain:
+        """Remove all routes for a container."""
+        if not container.valid_services:
             return
         
-        caddy_logger.info(f"Removing route for {container.domain}")
+        caddy_logger.info(f"Removing routes for container {container.name}")
         
-        try:
-            # Check if this container owns the route
-            if self._routes.get(container.domain) != container.container_id:
-                caddy_logger.warning(
-                    f"Container {container.container_id[:12]} does not own domain "
-                    f"{container.domain}, skipping removal"
-                )
-                return
-            
-            # Remove from Caddy
-            await self._remove_route(container.domain)
-            
-            # Remove from tracking
-            self._routes.pop(container.domain, None)
-            
-            caddy_logger.info(f"Successfully removed route for {container.domain}")
-            
-        except Exception as e:
-            caddy_logger.error(f"Failed to remove route for {container.domain}: {e}")
+        # Remove each service route
+        for port, service in container.valid_services.items():
+            try:
+                # Check if this container owns the route
+                expected_route_owner = f"{container.container_id}_{service.port}"
+                if self._routes.get(service.domain) != expected_route_owner:
+                    caddy_logger.warning(
+                        f"Container {container.container_id[:12]}:{service.port} does not own domain "
+                        f"{service.domain}, skipping removal"
+                    )
+                    continue
+                
+                # Remove from Caddy
+                await self._remove_route(service.domain)
+                
+                # Remove from tracking
+                self._routes.pop(service.domain, None)
+                
+                caddy_logger.info(f"Successfully removed route for {service.domain}")
+                
+            except Exception as e:
+                caddy_logger.error(f"Failed to remove route for {service.domain}: {e}")
     
-    def _create_route_config(self, container: ContainerInfo) -> dict:
-        """Create Caddy route configuration for a container."""
+    def _create_route_config(self, container: ContainerInfo, service: 'ServiceInfo') -> dict:
+        """Create Caddy route configuration for a service."""
         # Basic reverse proxy configuration
-        # Use resolved_host_port if available, otherwise fall back to container_port
-        backend_port = container.resolved_host_port if container.resolved_host_port else container.container_port
+        # Use resolved_host_port if available, otherwise fall back to service port
+        backend_port = service.resolved_host_port if service.resolved_host_port else service.port
         
         # Build handlers list
         handlers = []
         
         # If force_ssl is true, add HTTPS redirect for HTTP requests
-        if container.force_ssl:
+        if service.force_ssl:
             # Add a handler that redirects HTTP to HTTPS
             handlers.append({
                 "handler": "static_response",
@@ -135,12 +138,12 @@ class CaddyManager:
             }],
             "transport": {
                 "protocol": "http",
-                "tls": {} if container.backend_proto == "https" else None
+                "tls": {} if service.backend_proto == "https" else None
             }
         }
         
         # Add websocket support if enabled
-        if container.support_websocket:
+        if service.support_websocket:
             reverse_proxy_handler["headers"] = {
                 "request": {
                     "set": {
@@ -155,22 +158,22 @@ class CaddyManager:
             del reverse_proxy_handler["transport"]["tls"]
         
         # Handle backend path if not root
-        if container.backend_path != "/":
+        if service.backend_path != "/":
             reverse_proxy_handler["rewrite"] = {
-                "strip_path_prefix": container.backend_path.rstrip('/')
+                "strip_path_prefix": service.backend_path.rstrip('/')
             }
         
         handlers.append(reverse_proxy_handler)
         
         # Build the route configuration
         config = {
-            "@id": f"revp_route_{container.container_id}",
-            "match": [{"host": [container.domain]}],
+            "@id": f"revp_route_{container.container_id}_{service.port}",
+            "match": [{"host": [service.domain]}],
             "handle": handlers if len(handlers) > 1 else [handlers[0]]
         }
         
         # If force_ssl is true, we need to make sure HTTPS redirect only happens on HTTP
-        if container.force_ssl and len(handlers) > 1:
+        if service.force_ssl and len(handlers) > 1:
             # Create two routes: one for HTTP (redirect) and one for HTTPS (proxy)
             # This requires returning a list of routes, which current code doesn't support
             # So instead, we'll use a subroute with conditional handling
@@ -215,12 +218,12 @@ class CaddyManager:
     
     async def _remove_route(self, domain: str) -> None:
         """Remove a route configuration from Caddy."""
-        # Get the container ID for this domain
-        container_id = self._routes.get(domain, "")
-        if not container_id:
+        # Get the container_id_port for this domain
+        container_id_port = self._routes.get(domain, "")
+        if not container_id_port:
             return  # No route to remove
         
-        route_id = f"revp_route_{container_id}"
+        route_id = f"revp_route_{container_id_port}"
         
         # Get existing routes to find the index
         try:
@@ -340,10 +343,18 @@ class CaddyManager:
                 route_id = route.get("@id", "")
                 if route_id.startswith("revp_route_"):
                     # Extract container ID from revp_route_ prefix
+                    # New format: revp_route_{container_id}_{port}
                     container_part = route_id[11:]  # Remove "revp_route_" prefix
                     
+                    # Extract just the container ID (before the first underscore in the new format)
+                    if "_" in container_part:
+                        container_id = container_part.split("_")[0]
+                    else:
+                        # Legacy format without port
+                        container_id = container_part
+                    
                     # Check if this container should be managed by Revp
-                    should_remove = await self._should_remove_route(container_part, docker_monitor)
+                    should_remove = await self._should_remove_route(container_id, docker_monitor)
                     if should_remove:
                         routes_to_remove.append(i)
                         revp_routes_found += 1
@@ -394,8 +405,12 @@ class CaddyManager:
                     config = container_info.get("Config", {})
                     labels = config.get("Labels", {})
                     
-                    # If container has Revp domain label, it should be managed by us
-                    if "snadboy.revp.domain" in labels:
+                    # Check for port-based Revp labels (new format)
+                    has_revp_labels = any(key.startswith("snadboy.revp.") and len(key.split(".")) == 4 
+                                         and key.split(".")[2].isdigit() 
+                                         for key in labels.keys())
+                    
+                    if has_revp_labels:
                         caddy_logger.debug(f"Container {container_id} has Revp labels, route will be recreated")
                         return True  # Remove old route, it will be recreated with current config
                     else:

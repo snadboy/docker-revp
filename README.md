@@ -375,25 +375,27 @@ cp .env.example .env
 
 ### Container Labels
 
-Add these labels to your Docker containers to enable reverse proxy:
+Add these port-based labels to your Docker containers to enable reverse proxy. The new format allows multiple services per container by using the container port as an index.
+
+**Label Format:** `snadboy.revp.{PORT}.{PROPERTY}`
 
 | Label | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `snadboy.revp.domain` | Yes | - | Incoming domain (e.g., `app.example.com`) |
-| `snadboy.revp.container-port` | Yes | - | Container port your app listens on (e.g., `80`, `3000`) |
-| `snadboy.revp.backend-proto` | No | `https` | Backend protocol (`http` or `https`) |
-| `snadboy.revp.backend-path` | No | `/` | Backend path |
-| `snadboy.revp.force-ssl` | No | `true` | Force SSL/HTTPS |
-| `snadboy.revp.support-websocket` | No | `false` | Enable WebSocket support |
+| `snadboy.revp.{PORT}.domain` | Yes | - | Incoming domain (e.g., `app.example.com`) |
+| `snadboy.revp.{PORT}.backend-proto` | No | `http` | Backend protocol (`http` or `https`) |
+| `snadboy.revp.{PORT}.backend-path` | No | `/` | Backend path |
+| `snadboy.revp.{PORT}.force-ssl` | No | `true` | Force SSL/HTTPS |
+| `snadboy.revp.{PORT}.support-websocket` | No | `false` | Enable WebSocket support |
 
-**Important Note about Container Port:**
-- `container-port` refers to the port your application listens on **INSIDE** the Docker container
-- This is NOT the external/host port that you map to
-- Example: If your container runs nginx on port 80 but you map it as `8080:80`, use `container-port=80`
-- The system will automatically resolve this to the correct host port (8080 in this example)
+**Key Changes from v1.x:**
+- **Port-based indexing**: Use the container port as the index (e.g., `snadboy.revp.80.domain`)
+- **Multiple services**: One container can now expose multiple services on different ports
+- **Cleaner syntax**: No need for separate `container-port` label
+- **Backward compatibility**: Legacy labels are no longer supported (breaking change)
 
 ### Example Container Labels
 
+**Single Service Container:**
 ```yaml
 services:
   webapp:
@@ -401,12 +403,34 @@ services:
     ports:
       - "8080:80"  # Maps host port 8080 to container port 80
     labels:
-      - "snadboy.revp.domain=app.example.com"
-      - "snadboy.revp.container-port=80"  # Use the CONTAINER port (80), not host port (8080)
-      - "snadboy.revp.backend-proto=http"
-      - "snadboy.revp.backend-path=/"
-      - "snadboy.revp.force-ssl=true"
-      - "snadboy.revp.support-websocket=false"
+      - "snadboy.revp.80.domain=app.example.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=false"
+```
+
+**Multi-Service Container:**
+```yaml
+services:
+  multi-app:
+    image: my-app:latest
+    ports:
+      - "8080:80"    # Main app
+      - "8081:8000"  # Admin interface
+    labels:
+      # Main application on port 80
+      - "snadboy.revp.80.domain=app.example.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      
+      # Admin interface on port 8000
+      - "snadboy.revp.8000.domain=admin.example.com"
+      - "snadboy.revp.8000.backend-proto=https"
+      - "snadboy.revp.8000.backend-path=/dashboard"
+      - "snadboy.revp.8000.force-ssl=true"
+      - "snadboy.revp.8000.support-websocket=true"
 ```
 
 ## API Endpoints
@@ -583,7 +607,7 @@ The included `docker-compose.yml` provides:
    - Ensure Docker is accessible via SSH on target hosts
 
 2. **Container Not Detected**
-   - Verify container has required labels (`snadboy.revp.domain` and `snadboy.revp.backend-port`)
+   - Verify container has required labels (`snadboy.revp.{PORT}.domain`)
    - Check Docker events are being received
    - Review logs for container processing errors
 

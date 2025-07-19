@@ -67,31 +67,14 @@ async def list_containers(
                 # Extract container name for defaults
                 container_name = container.get("Names", "").lstrip("/") if container.get("Names") else ""
                 
-                # Check for revp labels
+                # Check for port-based revp labels (new format)
                 revp_labels = {k: v for k, v in labels.items() if k.startswith("snadboy.revp.")}
-                has_revp = bool(revp_labels)
+                has_revp = any(key.startswith("snadboy.revp.") and len(key.split(".")) == 4 
+                              and key.split(".")[2].isdigit() 
+                              for key in labels.keys())
                 
-                # Process revp labels with defaults
-                if has_revp:
-                    processed_revp = {}
-                    for key, value in revp_labels.items():
-                        if key == "snadboy.revp.title" and not value:
-                            processed_revp[key] = container_name
-                        elif key == "snadboy.revp.description" and not value:
-                            processed_revp[key] = ""
-                        else:
-                            processed_revp[key] = value
-                    
-                    # Add defaults for missing keys
-                    if "snadboy.revp.title" not in revp_labels:
-                        processed_revp["snadboy.revp.title"] = container_name
-                    if "snadboy.revp.description" not in revp_labels:
-                        processed_revp["snadboy.revp.description"] = ""
-                    
-                    # Test label to verify processing works
-                    processed_revp["snadboy.revp.test"] = "defaults_applied"
-                else:
-                    processed_revp = revp_labels
+                # Use the raw revp labels for ContainerInfo (no processing needed)
+                processed_revp = revp_labels
                 
                 # Get container ID, fallback to generating one from name+host
                 container_id = container.get("ID", container.get("Id", ""))
@@ -99,9 +82,8 @@ async def list_containers(
                     # Generate a unique ID from container name and host
                     container_id = hashlib.sha256(f"{container_name}@{hostname}".encode()).hexdigest()[:12]
                 
-                # Create ContainerInfo object to get backend URL
-                backend_url = None
-                resolved_host_port = None
+                # Create ContainerInfo object to get service information
+                services_info = []
                 
                 if has_revp:
                     # Get host IP - use simple resolution for API endpoint
@@ -146,8 +128,18 @@ async def list_containers(
                         # Resolve port mapping
                         container_info_obj.resolve_port_mapping(port_bindings)
                     
-                    backend_url = container_info_obj.backend_url
-                    resolved_host_port = container_info_obj.resolved_host_port
+                    # Get services information
+                    for port, service in container_info_obj.valid_services.items():
+                        services_info.append({
+                            "port": port,
+                            "domain": service.domain,
+                            "backend_url": service.backend_url(host_ip),
+                            "resolved_host_port": service.resolved_host_port,
+                            "backend_proto": service.backend_proto,
+                            "backend_path": service.backend_path,
+                            "force_ssl": service.force_ssl,
+                            "support_websocket": service.support_websocket
+                        })
                 
                 # Create container info dictionary
                 container_info = {
@@ -159,8 +151,7 @@ async def list_containers(
                     "image": container.get("Image", ""),
                     "has_revp_config": has_revp,
                     "labels": processed_revp,
-                    "backend_url": backend_url,
-                    "resolved_host_port": resolved_host_port
+                    "services": services_info
                 }
                 
                 # Apply filter

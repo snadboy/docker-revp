@@ -295,14 +295,22 @@ class Dashboard {
                 ? '<span class="revp-badge enabled">Enabled</span>'
                 : '<span class="revp-badge disabled">Disabled</span>';
             
-            const domain = container.has_revp_config && container.labels['snadboy.revp.domain']
-                ? container.labels['snadboy.revp.domain']
-                : '-';
+            // Get domain and backend from services (multi-port support)
+            let domain = '-';
+            let backend = '-';
             
-            // Use backend_url from the API which includes the resolved host port
-            const backend = container.has_revp_config && container.backend_url
-                ? container.backend_url
-                : '-';
+            if (container.has_revp_config && container.services && container.services.length > 0) {
+                // Show the first service's domain and backend URL
+                const firstService = container.services[0];
+                domain = firstService.domain || '-';
+                backend = firstService.backend_url || '-';
+                
+                // If multiple services, indicate that
+                if (container.services.length > 1) {
+                    domain += ` (+${container.services.length - 1} more)`;
+                    backend += ` (+${container.services.length - 1} more)`;
+                }
+            }
             
             // Generate a unique ID if container.id is empty
             const containerId = container.id || `${container.name}_${container.host}`.replace(/[^a-zA-Z0-9]/g, '_');
@@ -344,45 +352,62 @@ class Dashboard {
     generateLabelsContent(container) {
         let labelsHtml = '<div class="labels-content">';
         
-        if (container.has_revp_config && Object.keys(container.labels).length > 0) {
-            labelsHtml += '<h4>RevP Labels</h4><div class="labels-grid">';
+        if (container.has_revp_config && container.services && container.services.length > 0) {
+            labelsHtml += '<h4>RevP Services</h4>';
             
-            Object.entries(container.labels).forEach(([key, value]) => {
-                if (key.startsWith('snadboy.revp.')) {
-                    // Show container-port with resolved host port info
-                    if (key === 'snadboy.revp.container-port' && container.resolved_host_port) {
-                        labelsHtml += `
-                            <div class="label-item">
-                                <span class="label-key">${key}:</span>
-                                <span class="label-value">${value} → ${container.resolved_host_port} (host)</span>
-                            </div>
-                        `;
-                    } else {
-                        labelsHtml += `
-                            <div class="label-item">
-                                <span class="label-key">${key}:</span>
-                                <span class="label-value">${value || '(empty)'}</span>
-                            </div>
-                        `;
-                    }
-                }
-            });
-            
-            // Show warning if port is not published
-            if (container.container_port && !container.resolved_host_port) {
+            container.services.forEach((service, index) => {
+                labelsHtml += `<div class="service-section">`;
+                labelsHtml += `<h5>Service ${index + 1} (Port ${service.port})</h5>`;
+                labelsHtml += `<div class="labels-grid">`;
+                
+                // Display all service properties
                 labelsHtml += `
-                    <div class="label-item" style="color: var(--warning-color);">
-                        <span class="label-key">⚠️ Warning:</span>
-                        <span class="label-value">Port ${container.container_port} is not published to host</span>
+                    <div class="label-item">
+                        <span class="label-key">Domain:</span>
+                        <span class="label-value">${service.domain || '(empty)'}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">Container Port:</span>
+                        <span class="label-value">${service.port}${service.resolved_host_port ? ` → ${service.resolved_host_port} (host)` : ''}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">Backend URL:</span>
+                        <span class="label-value">${service.backend_url || '-'}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">Backend Protocol:</span>
+                        <span class="label-value">${service.backend_proto}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">Backend Path:</span>
+                        <span class="label-value">${service.backend_path}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">Force SSL:</span>
+                        <span class="label-value">${service.force_ssl ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div class="label-item">
+                        <span class="label-key">WebSocket Support:</span>
+                        <span class="label-value">${service.support_websocket ? 'Yes' : 'No'}</span>
                     </div>
                 `;
-            }
-            
-            labelsHtml += '</div>';
+                
+                // Show warning if port is not published
+                if (!service.resolved_host_port) {
+                    labelsHtml += `
+                        <div class="label-item" style="color: var(--warning-color);">
+                            <span class="label-key">⚠️ Warning:</span>
+                            <span class="label-value">Port ${service.port} is not published to host</span>
+                        </div>
+                    `;
+                }
+                
+                labelsHtml += '</div></div>';
+            });
         }
         
-        // Add a placeholder for all other labels if we had access to them
-        labelsHtml += '<p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem;">Only RevP labels are currently displayed. Other Docker labels are not included in the API response.</p>';
+        // Add note about multi-port support
+        labelsHtml += '<p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem;">Multi-port containers can expose multiple services with different domains and configurations.</p>';
         
         labelsHtml += '</div>';
         
@@ -487,12 +512,12 @@ class Dashboard {
                     bValue = b.has_revp_config ? 1 : 0;
                     break;
                 case 'domain':
-                    aValue = a.has_revp_config && a.labels['snadboy.revp.domain'] ? a.labels['snadboy.revp.domain'] : '';
-                    bValue = b.has_revp_config && b.labels['snadboy.revp.domain'] ? b.labels['snadboy.revp.domain'] : '';
+                    aValue = a.has_revp_config && a.services && a.services.length > 0 ? a.services[0].domain : '';
+                    bValue = b.has_revp_config && b.services && b.services.length > 0 ? b.services[0].domain : '';
                     break;
                 case 'backend':
-                    aValue = a.has_revp_config && a.backend_url ? a.backend_url : '';
-                    bValue = b.has_revp_config && b.backend_url ? b.backend_url : '';
+                    aValue = a.has_revp_config && a.services && a.services.length > 0 ? a.services[0].backend_url : '';
+                    bValue = b.has_revp_config && b.services && b.services.length > 0 ? b.services[0].backend_url : '';
                     break;
                 default:
                     return 0;

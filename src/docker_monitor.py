@@ -10,8 +10,47 @@ from .config import settings
 from .logger import docker_logger
 
 
+class ServiceInfo:
+    """Individual service configuration within a container."""
+    
+    def __init__(self, port: str, labels_dict: dict):
+        self.port = port
+        self.domain = labels_dict.get("domain", "")
+        self.backend_proto = labels_dict.get("backend-proto", "http")
+        self.backend_path = labels_dict.get("backend-path", "/")
+        self.force_ssl = labels_dict.get("force-ssl", "true").lower() == "true"
+        self.support_websocket = labels_dict.get("support-websocket", "false").lower() == "true"
+        
+        # Port mapping will be resolved later
+        self.resolved_host_port = None
+    
+    @property
+    def is_valid(self) -> bool:
+        """Check if service has valid configuration."""
+        return bool(self.domain and self.port)
+    
+    def backend_url(self, host_ip: str) -> str:
+        """Get the backend URL for this service."""
+        path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
+        # Use resolved host port if available, otherwise fall back to container port
+        port = self.resolved_host_port if self.resolved_host_port else self.port
+        return f"{self.backend_proto}://{host_ip}:{port}{path}"
+    
+    def to_dict(self) -> dict:
+        """Convert service to dictionary representation."""
+        return {
+            "port": self.port,
+            "domain": self.domain,
+            "backend_proto": self.backend_proto,
+            "backend_path": self.backend_path,
+            "force_ssl": self.force_ssl,
+            "support_websocket": self.support_websocket,
+            "resolved_host_port": self.resolved_host_port
+        }
+
+
 class ContainerInfo:
-    """Container information and metadata."""
+    """Container information and metadata with multiple services."""
     
     def __init__(self, container_id: str, host: str, host_ip: str, labels: dict, name: str):
         self.container_id = container_id
@@ -21,60 +60,86 @@ class ContainerInfo:
         self.labels = labels
         self.last_seen = datetime.utcnow()
         
-        # Extract reverse proxy configuration
-        self.domain = labels.get("snadboy.revp.domain", "")
-        # Support both new container-port and legacy backend-port for backward compatibility
-        self.container_port = labels.get("snadboy.revp.container-port", "") or labels.get("snadboy.revp.backend-port", "")
-        self.backend_proto = labels.get("snadboy.revp.backend-proto", "https")
-        self.backend_path = labels.get("snadboy.revp.backend-path", "/")
-        self.force_ssl = labels.get("snadboy.revp.force-ssl", "true").lower() == "true"
-        self.support_websocket = labels.get("snadboy.revp.support-websocket", "false").lower() == "true"
+        # Parse port-based services from labels
+        self.services = self._parse_services(labels)
+    
+    def _parse_services(self, labels: dict) -> dict:
+        """Parse port-based service configurations from labels."""
+        services = {}
         
-        # Port mapping will be resolved later
-        self.resolved_host_port = None
+        for label_key, value in labels.items():
+            if not label_key.startswith("snadboy.revp."):
+                continue
+            
+            # Split label: snadboy.revp.{port}.{property}
+            parts = label_key.split(".")
+            if len(parts) != 4:
+                continue
+            
+            prefix, revp, port, property_name = parts
+            
+            # Validate port is numeric
+            if not port.isdigit():
+                continue
+            
+            # Initialize service if not exists
+            if port not in services:
+                services[port] = {}
+            
+            # Store property for this port
+            services[port][property_name] = value
+        
+        # Convert to ServiceInfo objects
+        service_objects = {}
+        for port, service_labels in services.items():
+            service_objects[port] = ServiceInfo(port, service_labels)
+        
+        return service_objects
     
     @property
     def is_valid(self) -> bool:
-        """Check if container has valid reverse proxy configuration."""
-        return bool(self.domain and self.container_port)
+        """Check if container has any valid service configurations."""
+        return any(service.is_valid for service in self.services.values())
     
     @property
-    def backend_url(self) -> str:
-        """Get the backend URL for this container."""
-        path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
-        # Use resolved host port if available, otherwise fall back to container port
-        port = self.resolved_host_port if self.resolved_host_port else self.container_port
-        return f"{self.backend_proto}://{self.host_ip}:{port}{path}"
+    def valid_services(self) -> dict:
+        """Get only the valid services."""
+        return {port: service for port, service in self.services.items() if service.is_valid}
     
     def resolve_port_mapping(self, port_bindings: dict) -> None:
-        """Resolve container port to host port from Docker port bindings.
+        """Resolve container ports to host ports from Docker port bindings.
         
         Args:
             port_bindings: Docker NetworkSettings.Ports dict
         """
-        if not self.container_port or not port_bindings:
+        if not port_bindings:
             return
         
-        # Look for the container port in the bindings
-        # Docker uses format like "80/tcp", "443/tcp"
-        tcp_key = f"{self.container_port}/tcp"
-        udp_key = f"{self.container_port}/udp"
-        
-        # Check TCP first (most common)
-        if tcp_key in port_bindings and port_bindings[tcp_key]:
-            # port_bindings[tcp_key] is a list of dicts like [{"HostIp": "0.0.0.0", "HostPort": "8080"}]
-            # Take the first binding
-            binding = port_bindings[tcp_key][0]
-            self.resolved_host_port = binding.get("HostPort")
-        elif udp_key in port_bindings and port_bindings[udp_key]:
-            # Check UDP as fallback
-            binding = port_bindings[udp_key][0]
-            self.resolved_host_port = binding.get("HostPort")
-        else:
-            # Port not published or not found
-            docker_logger.warning(
-                f"Container {self.name}: port {self.container_port} is not published to host"
-            )
+        # Resolve port mappings for each service
+        for service in self.services.values():
+            if not service.port:
+                continue
+            
+            # Look for the container port in the bindings
+            # Docker uses format like "80/tcp", "443/tcp"
+            tcp_key = f"{service.port}/tcp"
+            udp_key = f"{service.port}/udp"
+            
+            # Check TCP first (most common)
+            if tcp_key in port_bindings and port_bindings[tcp_key]:
+                # port_bindings[tcp_key] is a list of dicts like [{"HostIp": "0.0.0.0", "HostPort": "8080"}]
+                # Take the first binding
+                binding = port_bindings[tcp_key][0]
+                service.resolved_host_port = binding.get("HostPort")
+            elif udp_key in port_bindings and port_bindings[udp_key]:
+                # Check UDP as fallback
+                binding = port_bindings[udp_key][0]
+                service.resolved_host_port = binding.get("HostPort")
+            else:
+                # Port not published or not found
+                docker_logger.warning(
+                    f"Container {self.name}: port {service.port} is not published to host"
+                )
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -83,14 +148,9 @@ class ContainerInfo:
             "host": self.host,
             "host_ip": self.host_ip,
             "name": self.name,
-            "domain": self.domain,
-            "backend_url": self.backend_url,
-            "force_ssl": self.force_ssl,
-            "support_websocket": self.support_websocket,
+            "services": {port: service.to_dict() for port, service in self.services.items()},
             "labels": self.labels,
-            "last_seen": self.last_seen.isoformat(),
-            "container_port": self.container_port,
-            "resolved_host_port": self.resolved_host_port
+            "last_seen": self.last_seen.isoformat()
         }
 
 
@@ -245,8 +305,13 @@ class DockerMonitor:
             config = container_info.get("Config", {})
             labels = config.get("Labels", {})
             docker_logger.info(f"Container {container_id} labels: {labels}")
-            if "snadboy.revp.domain" not in labels:
-                docker_logger.info(f"Container {container_id} does not have snadboy.revp.domain label")
+            # Check if container has any revp port-based labels
+            has_revp_labels = any(key.startswith("snadboy.revp.") and len(key.split(".")) == 4 
+                                 and key.split(".")[2].isdigit() 
+                                 for key in labels.keys())
+            
+            if not has_revp_labels:
+                docker_logger.info(f"Container {container_id} does not have any snadboy.revp port-based labels")
                 return
             
             # Create ContainerInfo object
@@ -260,7 +325,7 @@ class DockerMonitor:
             
             if not container.is_valid:
                 docker_logger.warning(
-                    f"Container {container.name} has snadboy.revp.domain but missing container-port"
+                    f"Container {container.name} has revp labels but no valid service configurations"
                 )
                 return
             
@@ -272,16 +337,19 @@ class DockerMonitor:
             # Store container
             self.containers[container_id] = container
             
+            # Log detected services
+            valid_services = container.valid_services
+            service_info = ", ".join([f"{service.domain} (port {port})" for port, service in valid_services.items()])
             docker_logger.info(
-                f"Detected container {container.name} on {host} "
-                f"with domain {container.domain} -> {container.backend_url}"
+                f"Detected container {container.name} on {host} with services: {service_info}"
             )
             
-            # Update Caddy
+            # Update Caddy for each valid service
             if self.caddy_manager:
-                docker_logger.info(f"Adding Caddy route for {container.domain}")
-                await self.caddy_manager.add_route(container)
-                docker_logger.info(f"Successfully added Caddy route for {container.domain}")
+                for port, service in valid_services.items():
+                    docker_logger.info(f"Adding Caddy route for {service.domain}")
+                    await self.caddy_manager.add_route(container, service)
+                    docker_logger.info(f"Successfully added Caddy route for {service.domain}")
             else:
                 docker_logger.error("CaddyManager is not available!")
             
@@ -306,7 +374,7 @@ class DockerMonitor:
             return
         
         docker_logger.info(
-            f"Container {container.name} stopped, removing route for {container.domain}"
+            f"Container {container.name} stopped, removing routes"
         )
         
         # Remove from Caddy
@@ -395,24 +463,25 @@ class DockerMonitor:
                     elif route_id.startswith("route_"):
                         docker_logger.debug(f"Ignoring legacy route_ format: {route_id}")
             
-            # Check each tracked container
+            # Check each tracked container and its services
             missing_routes = []
             for container_id, container in self.containers.items():
-                # Only check for revp_route_ format
-                expected_route_id = f"revp_route_{container_id}"
-                
-                if expected_route_id not in current_routes:
-                    missing_routes.append(container)
+                # Check each service in the container
+                for port, service in container.valid_services.items():
+                    expected_route_id = f"revp_route_{container_id}_{port}"
+                    
+                    if expected_route_id not in current_routes:
+                        missing_routes.append((container, service))
             
             # Restore missing routes
             if missing_routes:
                 docker_logger.warning(f"Found {len(missing_routes)} missing routes in Caddy, restoring...")
-                for container in missing_routes:
+                for container, service in missing_routes:
                     try:
-                        docker_logger.info(f"Restoring route for {container.domain}")
-                        await self.caddy_manager.add_route(container)
+                        docker_logger.info(f"Restoring route for {service.domain}")
+                        await self.caddy_manager.add_route(container, service)
                     except Exception as e:
-                        docker_logger.error(f"Failed to restore route for {container.domain}: {e}")
+                        docker_logger.error(f"Failed to restore route for {service.domain}: {e}")
                         
         except Exception as e:
             docker_logger.error(f"Error checking routes: {e}")
@@ -573,7 +642,9 @@ class DockerMonitor:
                 }
             
             host_status[container.host]["container_count"] += 1
-            host_status[container.host]["domains"].append(container.domain)
+            # Add all service domains for this container
+            for service in container.valid_services.values():
+                host_status[container.host]["domains"].append(service.domain)
         
         return {
             "total_containers": len(self.containers),
