@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from typing import List, Tuple
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -26,8 +27,26 @@ class Settings(BaseSettings):
     log_file_path: str = "/var/log/docker-revp/monitor.log"
     
     # API configuration
-    api_port: int = 8080
-    api_host: str = "0.0.0.0"
+    api_bind: str = "0.0.0.0:8080"
+    
+    @field_validator('api_bind')
+    def validate_api_bind(cls, v):
+        """Validate API bind format is HOST:PORT."""
+        if ':' not in v:
+            raise ValueError(f"API_BIND must be in HOST:PORT format, got: {v}")
+        
+        parts = v.split(':')
+        if len(parts) != 2:
+            raise ValueError(f"API_BIND must be in HOST:PORT format, got: {v}")
+        
+        try:
+            port = int(parts[1])
+            if not 1 <= port <= 65535:
+                raise ValueError(f"Port must be between 1 and 65535, got: {port}")
+        except ValueError:
+            raise ValueError(f"Invalid port number in API_BIND: {parts[1]}")
+        
+        return v
     
     # Version configuration
     app_version: str = "unknown"

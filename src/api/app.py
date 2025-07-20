@@ -35,7 +35,7 @@ def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
     
     @app.on_event("startup")
     async def startup_event():
-        api_logger.info(f"API server starting on {settings.api_host}:{settings.api_port}")
+        api_logger.info(f"API server starting on {settings.api_bind}")
     
     @app.on_event("shutdown")
     async def shutdown_event():

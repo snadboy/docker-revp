@@ -249,9 +249,6 @@ temp/
 ehthumbs.db
 Thumbs.db
 
-# SSH debug
-ssh-debug/
-
 # Caddy data
 caddy/
 

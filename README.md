@@ -370,8 +370,7 @@ cp .env.example .env
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `LOG_MAX_SIZE` | No | `10` | Max log file size in MB |
 | `LOG_BACKUP_COUNT` | No | `5` | Number of log files to keep |
-| `API_PORT` | No | `8080` | Port for health check API |
-| `API_HOST` | No | `0.0.0.0` | Host for health check API |
+| `API_BIND` | No | `0.0.0.0:8080` | API server bind address (HOST:PORT format) |
 
 ### Container Labels
 

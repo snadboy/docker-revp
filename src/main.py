@@ -78,10 +78,14 @@ class DockerMonitorService:
     
     async def run_api_server(self) -> None:
         """Run the FastAPI server."""
+        # Parse host and port from api_bind
+        host, port_str = settings.api_bind.split(':')
+        port = int(port_str)
+        
         config = uvicorn.Config(
             app=self.app,
-            host=settings.api_host,
-            port=settings.api_port,
+            host=host,
+            port=port,
             log_level=settings.log_level.lower(),
             access_log=True
         )
