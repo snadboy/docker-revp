@@ -1,6 +1,6 @@
 {
   "name": "docker-revp",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Docker Reverse Proxy with Caddy Integration",
   "repository": {
     "type": "git",

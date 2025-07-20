@@ -1,3 +1,10 @@
+## [3.0.2](https://github.com/snadboy/docker-revp/compare/v3.0.1...v3.0.2) (2025-07-20)
+
+
+### Bug Fixes
+
+* make Docker healthcheck dynamic to API_BIND port configuration ([2be1273](https://github.com/snadboy/docker-revp/commit/2be1273e92cd548890b996d3b36fdb0e6e1809ef))
+
 ## [3.0.1](https://github.com/snadboy/docker-revp/compare/v3.0.0...v3.0.1) (2025-07-20)
 
 
