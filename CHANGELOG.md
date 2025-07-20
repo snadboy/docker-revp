@@ -1,3 +1,10 @@
+## [3.0.1](https://github.com/snadboy/docker-revp/compare/v3.0.0...v3.0.1) (2025-07-20)
+
+
+### Bug Fixes
+
+* improve health check reliability and Docker healthcheck configuration ([038d60b](https://github.com/snadboy/docker-revp/commit/038d60bdc55f3dcc53b78a861b5672c0678821dc))
+
 # [3.0.0](https://github.com/snadboy/docker-revp/compare/v2.0.0...v3.0.0) (2025-07-20)
 
 
