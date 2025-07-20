@@ -1,3 +1,29 @@
+# [3.0.0](https://github.com/snadboy/docker-revp/compare/v2.0.0...v3.0.0) (2025-07-20)
+
+
+* refactor\!: combine API_HOST and API_PORT into single API_BIND variable ([45b4d0a](https://github.com/snadboy/docker-revp/commit/45b4d0a1462fbe111fc9c1a54733f2bedb6ec3fc))
+
+
+### BREAKING CHANGES
+
+* API_HOST and API_PORT environment variables replaced with API_BIND
+
+- Replace separate api_host and api_port configuration with single api_bind
+- Use HOST:PORT format consistent with Caddy's CADDY_ADMIN variable
+- Add validation to ensure proper HOST:PORT format and valid port range
+- Update main.py and app.py to parse api_bind directly
+- Remove ssh-debug volume mount and directory (unused debugging feature)
+- Update docker-compose.yml, .env files, and README documentation
+- Fix healthcheck to use hardcoded localhost:8080
+
+This simplifies configuration and follows standard HOST:PORT convention
+used by many services. Users must update their environment variables
+from API_HOST/API_PORT to API_BIND format.
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 # [2.0.0](https://github.com/snadboy/docker-revp/compare/v1.4.0...v2.0.0) (2025-07-19)
 
 
