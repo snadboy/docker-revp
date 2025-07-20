@@ -13,9 +13,26 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("")
-async def health_check():
-    """Basic health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+async def health_check(request: Request):
+    """Basic health check endpoint - API availability focused."""
+    # For Docker health check, we primarily care about API availability
+    # Caddy connection issues shouldn't make the container unhealthy
+    # since the API can still function and provide status information
+    
+    caddy_healthy = False
+    if request.app.state.caddy_manager:
+        try:
+            caddy_healthy = await request.app.state.caddy_manager.test_connection()
+        except Exception:
+            caddy_healthy = False
+    
+    # Always return healthy if the API is responding
+    # Use /health/detailed for comprehensive component checking
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "caddy_connected": caddy_healthy
+    }
 
 
 @router.get("/version")
