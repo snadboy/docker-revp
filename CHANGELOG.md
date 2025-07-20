@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/snadboy/docker-revp/compare/v3.0.2...v3.1.0) (2025-07-20)
+
+
+### Features
+
+* implement static routes functionality with YAML configuration ([1bc03e3](https://github.com/snadboy/docker-revp/commit/1bc03e39453145032ca6b6cad13dc969d210f5ab))
+
 ## [3.0.2](https://github.com/snadboy/docker-revp/compare/v3.0.1...v3.0.2) (2025-07-20)
 
 
