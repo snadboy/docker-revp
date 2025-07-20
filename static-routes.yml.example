@@ -1,0 +1,25 @@
+# Example static routes configuration
+# Copy this file to static-routes.yml and customize for your needs
+# Mount as volume: ./static-routes.yml:/app/config/static-routes.yml:ro
+
+static_routes:
+  # Example legacy API service
+  - domain: api.legacy.company.com
+    backend_url: http://192.168.1.100:3000
+    backend_path: /api/v1
+    force_ssl: true
+    support_websocket: false
+
+  # Example admin interface
+  - domain: admin.internal.company.com
+    backend_url: https://192.168.1.101:8443
+    backend_path: /dashboard
+    force_ssl: true
+    support_websocket: true
+
+  # Example external service
+  - domain: monitoring.company.com
+    backend_url: http://monitoring-server:9090
+    backend_path: /
+    force_ssl: true
+    support_websocket: false

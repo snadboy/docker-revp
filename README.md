@@ -7,6 +7,7 @@ A Python-based Docker container that monitors Docker containers across multiple 
 - **Multi-host Docker monitoring** via SSH
 - **Real-time container event monitoring** (start, stop, pause, unpause)
 - **Automatic Caddy reverse proxy configuration** via Admin API
+- **Static route configuration** via YAML for external services
 - **FastAPI health check and metrics endpoints**
 - **AI-native MCP (Model Context Protocol) integration** for AI agent access
 - **Responsive web dashboard** with real-time container management
@@ -431,6 +432,58 @@ services:
       - "snadboy.revp.8000.force-ssl=true"
       - "snadboy.revp.8000.support-websocket=true"
 ```
+
+### Static Routes Configuration
+
+For services that aren't running in Docker containers (legacy systems, external APIs, etc.), you can configure static routes using a YAML file.
+
+**Setup:**
+1. **Create static routes file:**
+   ```bash
+   cp static-routes.yml.example static-routes.yml
+   # Edit static-routes.yml with your routes
+   ```
+
+2. **YAML Configuration Format:**
+   ```yaml
+   static_routes:
+     # Example legacy API service
+     - domain: api.legacy.company.com
+       backend_url: http://192.168.1.100:3000
+       backend_path: /api/v1
+       force_ssl: true
+       support_websocket: false
+
+     # Example admin interface
+     - domain: admin.internal.company.com
+       backend_url: https://192.168.1.101:8443
+       backend_path: /dashboard
+       force_ssl: true
+       support_websocket: true
+   ```
+
+3. **Volume Mount (already configured in docker-compose.yml):**
+   ```yaml
+   volumes:
+     - ./static-routes.yml:/app/config/static-routes.yml:ro
+   ```
+
+**Static Route Properties:**
+
+| Property | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `domain` | Yes | - | Incoming domain (e.g., `api.example.com`) |
+| `backend_url` | Yes | - | Backend service URL (e.g., `http://192.168.1.100:3000`) |
+| `backend_path` | No | `/` | Path to append to backend requests |
+| `force_ssl` | No | `true` | Force HTTPS redirection |
+| `support_websocket` | No | `false` | Enable WebSocket support |
+
+**Features:**
+- **Automatic file watching**: Changes to static-routes.yml are detected and applied immediately
+- **Real-time updates**: Routes are updated in Caddy without container restart
+- **Same features**: Static routes support force-ssl, websocket, and all container label features
+- **Dashboard integration**: Static routes appear in the dashboard alongside containers  
+- **API access**: Available via `/containers/static-routes` and `/containers/all-services` endpoints
 
 ## API Endpoints
 

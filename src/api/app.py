@@ -11,7 +11,7 @@ from .containers import router as containers_router
 from .dashboard import router as dashboard_router
 
 
-def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
+def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None, static_routes_manager=None):
     """Create FastAPI application."""
     app = FastAPI(
         title="Docker Monitor API",
@@ -23,6 +23,7 @@ def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None):
     app.state.docker_monitor = docker_monitor
     app.state.caddy_manager = caddy_manager
     app.state.ssh_manager = ssh_manager
+    app.state.static_routes_manager = static_routes_manager
     
     # Mount static files
     static_dir = Path(__file__).parent.parent / "static"

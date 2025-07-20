@@ -232,4 +232,62 @@ async def containers_summary(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# get_container function temporarily removed
+@router.get("/static-routes")
+async def list_static_routes(request: Request) -> List[Dict[str, Any]]:
+    """List all configured static routes."""
+    api_logger.info("Listing static routes")
+    
+    if not request.app.state.static_routes_manager:
+        return []
+    
+    try:
+        static_routes = request.app.state.static_routes_manager.get_routes()
+        
+        result = []
+        for route in static_routes:
+            result.append({
+                "domain": route.domain,
+                "backend_url": route.backend_url,
+                "backend_path": route.backend_path,
+                "force_ssl": route.force_ssl,
+                "support_websocket": route.support_websocket,
+                "is_static": True
+            })
+        
+        return result
+        
+    except Exception as e:
+        api_logger.error(f"Error listing static routes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/all-services")
+async def list_all_services(
+    request: Request,
+    host: Optional[str] = None,
+    with_revp_labels: Optional[bool] = None
+) -> Dict[str, Any]:
+    """
+    List all services including both containers and static routes.
+    
+    Returns:
+        Dictionary with containers and static_routes arrays
+    """
+    api_logger.info(f"Listing all services (host={host}, with_revp_labels={with_revp_labels})")
+    
+    try:
+        # Get container services
+        containers = await list_containers(request, host, with_revp_labels)
+        
+        # Get static routes
+        static_routes = await list_static_routes(request)
+        
+        return {
+            "containers": containers,
+            "static_routes": static_routes,
+            "total_services": len(containers) + len(static_routes)
+        }
+        
+    except Exception as e:
+        api_logger.error(f"Error listing all services: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

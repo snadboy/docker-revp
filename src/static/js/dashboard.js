@@ -3,6 +3,7 @@ class Dashboard {
     constructor() {
         this.currentTab = 'summary';
         this.containers = [];
+        this.staticRoutes = [];
         this.healthData = {};
         this.summaryData = {};
         this.sortColumn = null;
@@ -223,18 +224,21 @@ class Dashboard {
     // Containers Tab
     async loadContainersData() {
         try {
-            const response = await fetch('/containers');
+            const response = await fetch('/containers/all-services');
             if (!response.ok) {
                 console.warn('Containers API not available:', response.status);
                 this.containers = [];
+                this.staticRoutes = [];
             } else {
                 const data = await response.json();
                 // Handle error responses from the API
                 if (data.detail && data.detail.includes('not initialized')) {
-                    console.warn('Docker monitor not initialized, using empty container list');
+                    console.warn('Docker monitor not initialized, using empty data');
                     this.containers = [];
+                    this.staticRoutes = [];
                 } else {
-                    this.containers = Array.isArray(data) ? data : [];
+                    this.containers = Array.isArray(data.containers) ? data.containers : [];
+                    this.staticRoutes = Array.isArray(data.static_routes) ? data.static_routes : [];
                 }
             }
             
@@ -342,6 +346,44 @@ class Dashboard {
             tbody.appendChild(labelsRow);
         });
         
+        // Display static routes
+        this.staticRoutes.forEach((route, index) => {
+            const row = document.createElement('tr');
+            row.className = 'container-row static-route-row';
+            row.dataset.containerId = `static-${route.domain}`;
+            
+            const revpBadge = '<span class="revp-badge static">Static Route</span>';
+            
+            // Generate a unique ID for static routes
+            const routeId = `static-${route.domain}`.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            row.innerHTML = `
+                <td><button class="expand-button" data-container-id="${routeId}">▶</button></td>
+                <td title="Static Route">[Static Route]</td>
+                <td title="External">External</td>
+                <td title="Active">Active</td>
+                <td title="Static Configuration">Static Configuration</td>
+                <td>${revpBadge}</td>
+                <td title="${route.domain}">${route.domain}</td>
+                <td title="${route.backend_url}">${route.backend_url}</td>
+            `;
+            
+            tbody.appendChild(row);
+            
+            // Labels row for static route (initially hidden)
+            const labelsRow = document.createElement('tr');
+            labelsRow.className = 'labels-row';
+            labelsRow.id = `labels-${routeId}`;
+            
+            const labelsCell = document.createElement('td');
+            labelsCell.colSpan = 8;
+            labelsCell.innerHTML = this.generateStaticRouteContent(route);
+            labelsCell.style.padding = '0';
+            
+            labelsRow.appendChild(labelsCell);
+            tbody.appendChild(labelsRow);
+        });
+        
         // Set up expand/collapse functionality
         this.setupExpandableRows();
         
@@ -412,6 +454,47 @@ class Dashboard {
         labelsHtml += '</div>';
         
         return labelsHtml;
+    }
+    
+    generateStaticRouteContent(route) {
+        let routeHtml = '<div class="labels-content">';
+        
+        routeHtml += '<h4>Static Route Configuration</h4>';
+        routeHtml += '<div class="labels-grid">';
+        
+        // Display all static route properties
+        routeHtml += `
+            <div class="label-item">
+                <span class="label-key">Domain:</span>
+                <span class="label-value">${route.domain}</span>
+            </div>
+            <div class="label-item">
+                <span class="label-key">Backend URL:</span>
+                <span class="label-value">${route.backend_url}</span>
+            </div>
+            <div class="label-item">
+                <span class="label-key">Backend Path:</span>
+                <span class="label-value">${route.backend_path}</span>
+            </div>
+            <div class="label-item">
+                <span class="label-key">Force SSL:</span>
+                <span class="label-value">${route.force_ssl ? 'Yes' : 'No'}</span>
+            </div>
+            <div class="label-item">
+                <span class="label-key">WebSocket Support:</span>
+                <span class="label-value">${route.support_websocket ? 'Yes' : 'No'}</span>
+            </div>
+            <div class="label-item">
+                <span class="label-key">Type:</span>
+                <span class="label-value">Static Route</span>
+            </div>
+        `;
+        
+        routeHtml += '</div>';
+        routeHtml += '<p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem;">Static routes are configured via YAML file and proxy to external services.</p>';
+        routeHtml += '</div>';
+        
+        return routeHtml;
     }
     
     setupExpandableRows() {

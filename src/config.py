@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # API configuration
     api_bind: str = "0.0.0.0:8080"
     
+    # Static routes configuration
+    static_routes_file: str = "/app/config/static-routes.yml"
+    
     @field_validator('api_bind')
     def validate_api_bind(cls, v):
         """Validate API bind format is HOST:PORT."""

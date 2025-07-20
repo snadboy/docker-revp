@@ -482,6 +482,21 @@ tr:hover {
     color: white;
 }
 
+.revp-badge.static {
+    background-color: var(--warning-color);
+    color: white;
+}
+
+/* Static route rows */
+.static-route-row {
+    background-color: rgba(245, 158, 11, 0.05);
+    border-left: 3px solid var(--warning-color);
+}
+
+[data-theme="dark"] .static-route-row {
+    background-color: rgba(245, 158, 11, 0.1);
+}
+
 /* Expandable container rows */
 .container-row {
     cursor: pointer;

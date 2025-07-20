@@ -6,3 +6,5 @@ python-json-logger
 pydantic
 pydantic-settings
 jinja2
+pyyaml
+watchdog

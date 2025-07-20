@@ -7,7 +7,7 @@ import httpx
 
 from .config import settings
 from .logger import caddy_logger
-from .docker_monitor import ContainerInfo
+from .docker_monitor import ContainerInfo, ServiceInfo
 
 
 class CaddyManager:
@@ -110,6 +110,200 @@ class CaddyManager:
             except Exception as e:
                 caddy_logger.error(f"Failed to remove route for {service.domain}: {e}")
     
+    async def add_static_route(self, service: ServiceInfo) -> None:
+        """Add or update a static route in Caddy."""
+        if not service.is_valid or not service.is_static:
+            caddy_logger.warning(f"Invalid static service configuration for {service.domain}")
+            return
+        
+        backend_url = service.backend_url()
+        caddy_logger.info(
+            f"Adding static route: {service.domain} -> {backend_url} "
+            f"(force_ssl: {service.force_ssl}, websocket: {service.support_websocket})"
+        )
+        
+        try:
+            # Check if another service is using this domain
+            existing_route_id = self._routes.get(service.domain)
+            if existing_route_id and not existing_route_id.startswith("static_"):
+                caddy_logger.warning(
+                    f"Domain {service.domain} already in use by container {existing_route_id}, replacing with static route"
+                )
+            
+            # Create the route configuration
+            route_config = self._create_static_route_config(service)
+            
+            # Apply configuration to Caddy
+            await self._apply_route(service.domain, route_config)
+            
+            # Track the route with static prefix
+            self._routes[service.domain] = f"static_{service.domain}"
+            
+            caddy_logger.info(f"Successfully added static route for {service.domain}")
+            
+        except Exception as e:
+            caddy_logger.error(f"Failed to add static route for {service.domain}: {e}")
+            raise
+    
+    async def remove_static_route(self, domain: str) -> None:
+        """Remove a static route."""
+        try:
+            # Check if this is a static route
+            route_id = self._routes.get(domain)
+            if not route_id or not route_id.startswith("static_"):
+                caddy_logger.warning(f"No static route found for domain {domain}")
+                return
+            
+            # Create the static route ID for removal
+            static_route_id = f"revp_static_route_{domain.replace('.', '_')}"
+            
+            # Remove from Caddy using the correct route ID
+            await self._remove_route_by_id(static_route_id)
+            
+            # Remove from tracking
+            self._routes.pop(domain, None)
+            
+            caddy_logger.info(f"Successfully removed static route for {domain}")
+            
+        except Exception as e:
+            caddy_logger.error(f"Failed to remove static route for {domain}: {e}")
+    
+    async def cleanup_static_routes(self) -> None:
+        """Clean up all static routes from Caddy (removes duplicates and stale entries)."""
+        try:
+            caddy_logger.info("Cleaning up all static routes from Caddy")
+            
+            routes_response = await self.client.get(f"{self.api_url}/config/apps/http/servers/srv0/routes")
+            if routes_response.status_code != 200:
+                caddy_logger.warning("Could not get current routes for static route cleanup")
+                return
+            
+            routes = routes_response.json()
+            
+            # Find all static routes (both current and stale)
+            static_route_indices = []
+            for i, route in enumerate(routes):
+                route_id = route.get("@id", "")
+                if route_id.startswith("revp_static_route_"):
+                    static_route_indices.append(i)
+            
+            # Remove all static routes in reverse order to maintain indices
+            removed_count = 0
+            for route_index in reversed(static_route_indices):
+                try:
+                    response = await self.client.delete(
+                        f"{self.api_url}/config/apps/http/servers/srv0/routes/{route_index}"
+                    )
+                    if response.status_code in [200, 204]:
+                        removed_count += 1
+                    else:
+                        caddy_logger.warning(f"Failed to remove static route at index {route_index}: {response.status_code}")
+                except Exception as e:
+                    caddy_logger.warning(f"Error removing static route at index {route_index}: {e}")
+            
+            # Clear static route tracking
+            static_domains_to_remove = [
+                domain for domain, route_id in self._routes.items() 
+                if route_id.startswith("static_")
+            ]
+            for domain in static_domains_to_remove:
+                self._routes.pop(domain, None)
+            
+            caddy_logger.info(f"Successfully cleaned up {removed_count} static routes from Caddy")
+                
+        except Exception as e:
+            caddy_logger.error(f"Error during static route cleanup: {e}")
+
+    async def update_static_routes(self, static_routes: list) -> None:
+        """Update all static routes based on configuration."""
+        caddy_logger.info(f"Updating static routes: {len(static_routes)} routes")
+        
+        # First, clean up all existing static routes to prevent duplicates
+        await self.cleanup_static_routes()
+        
+        # Add all static routes fresh
+        for static_route in static_routes:
+            service = ServiceInfo(static_route=static_route)
+            await self.add_static_route(service)
+    
+    def _create_static_route_config(self, service: ServiceInfo) -> dict:
+        """Create Caddy route configuration for a static service."""
+        # Build handlers list
+        handlers = []
+        
+        # Force SSL handler for HTTP requests (if enabled)
+        if service.force_ssl:
+            handlers.append({
+                "handler": "static_response",
+                "headers": {
+                    "Location": ["https://{http.request.host}{http.request.uri}"]
+                },
+                "status_code": 308
+            })
+        
+        # Reverse proxy handler
+        # For static routes, extract host:port from backend_url, ignore path
+        backend_dial = service._static_backend_url.replace("http://", "").replace("https://", "")
+        # Remove any path component
+        if "/" in backend_dial:
+            backend_dial = backend_dial.split("/")[0]
+        
+        reverse_proxy_handler = {
+            "handler": "reverse_proxy",
+            "upstreams": [{"dial": backend_dial}]
+        }
+        
+        # Add path rewriting if backend_path is not "/"
+        if service.backend_path != "/":
+            backend_path = service.backend_path.rstrip("/")
+            reverse_proxy_handler["rewrite"] = {
+                "uri": backend_path + "{http.request.uri}"
+            }
+        
+        # WebSocket support
+        if service.support_websocket:
+            reverse_proxy_handler["headers"] = {
+                "request": {
+                    "set": {
+                        "Connection": ["{http.request.header.Connection}"],
+                        "Upgrade": ["{http.request.header.Upgrade}"]
+                    }
+                }
+            }
+        
+        handlers.append(reverse_proxy_handler)
+        
+        # Create route configuration with unique ID
+        route_id = f"revp_static_route_{service.domain.replace('.', '_')}"
+        
+        # Build the route configuration
+        config = {
+            "@id": route_id,
+            "match": [{"host": [service.domain]}],
+            "handle": handlers if len(handlers) > 1 else [handlers[0]]
+        }
+        
+        # If force_ssl is true and we have multiple handlers, use subroute for conditional handling
+        if service.force_ssl and len(handlers) > 1:
+            config["handle"] = [{
+                "handler": "subroute",
+                "routes": [
+                    {
+                        "match": [{"protocol": "http"}],
+                        "handle": [handlers[0]],  # Redirect handler
+                        "terminal": True
+                    },
+                    {
+                        "match": [{"protocol": "https"}],
+                        "handle": [handlers[1]],  # Reverse proxy handler
+                        "terminal": True
+                    }
+                ]
+            }]
+            config["terminal"] = True
+        
+        return config
+    
     def _create_route_config(self, container: ContainerInfo, service: 'ServiceInfo') -> dict:
         """Create Caddy route configuration for a service."""
         # Basic reverse proxy configuration
@@ -199,10 +393,8 @@ class CaddyManager:
         if not route_id:
             raise Exception("Route configuration missing @id")
         
-        # Check if route already exists
-        if await self._route_exists(route_id):
-            caddy_logger.info(f"Route {route_id} already exists for {domain}, skipping")
-            return
+        # First, remove any existing routes with the same ID to prevent duplicates
+        await self._remove_route_by_id(route_id)
         
         # Add the new route to the routes array
         response = await self.client.post(
@@ -277,9 +469,9 @@ class CaddyManager:
     async def _remove_route_by_id(self, route_id: str) -> None:
         """Remove a route configuration from Caddy by route ID."""
         try:
-            # Only remove routes with revp_route_ prefix
-            if not route_id.startswith("revp_route_"):
-                caddy_logger.info(f"Skipping removal of non-Revp route: {route_id}")
+            # Only remove routes with revp_ prefix (both revp_route_ and revp_static_route_)
+            if not (route_id.startswith("revp_route_") or route_id.startswith("revp_static_route_")):
+                caddy_logger.debug(f"Skipping removal of non-Revp route: {route_id}")
                 return
                 
             routes_response = await self.client.get(f"{self.api_url}/config/apps/http/servers/srv0/routes")
@@ -288,23 +480,28 @@ class CaddyManager:
             
             routes = routes_response.json()
             
-            # Find the route index
-            route_index = None
-            for i, route in enumerate(routes):
+            # Find and remove all routes with this ID (in case of duplicates)
+            removed_count = 0
+            for i in reversed(range(len(routes))):
+                route = routes[i]
                 if route.get("@id") == route_id:
-                    route_index = i
-                    break
+                    try:
+                        response = await self.client.delete(
+                            f"{self.api_url}/config/apps/http/servers/srv0/routes/{i}"
+                        )
+                        
+                        if response.status_code in [200, 204]:
+                            removed_count += 1
+                            caddy_logger.debug(f"Removed route {route_id} at index {i}")
+                        else:
+                            caddy_logger.warning(
+                                f"Failed to remove route {route_id} at index {i}: {response.status_code} - {response.text}"
+                            )
+                    except Exception as e:
+                        caddy_logger.warning(f"Error removing route {route_id} at index {i}: {e}")
             
-            if route_index is not None:
-                # Remove the route by index
-                response = await self.client.delete(
-                    f"{self.api_url}/config/apps/http/servers/srv0/routes/{route_index}"
-                )
-                
-                if response.status_code not in [200, 204]:
-                    caddy_logger.warning(
-                        f"Failed to remove route {route_id}: {response.status_code} - {response.text}"
-                    )
+            if removed_count > 0:
+                caddy_logger.info(f"Removed {removed_count} instance(s) of route {route_id}")
                     
         except Exception as e:
             # If remove fails, just log it - don't prevent other operations

@@ -11,30 +11,53 @@ from .logger import docker_logger
 
 
 class ServiceInfo:
-    """Individual service configuration within a container."""
+    """Individual service configuration for containers or static routes."""
     
-    def __init__(self, port: str, labels_dict: dict):
-        self.port = port
-        self.domain = labels_dict.get("domain", "")
-        self.backend_proto = labels_dict.get("backend-proto", "http")
-        self.backend_path = labels_dict.get("backend-path", "/")
-        self.force_ssl = labels_dict.get("force-ssl", "true").lower() == "true"
-        self.support_websocket = labels_dict.get("support-websocket", "false").lower() == "true"
-        
-        # Port mapping will be resolved later
-        self.resolved_host_port = None
+    def __init__(self, port: str = None, labels_dict: dict = None, static_route=None):
+        if static_route:
+            # Initialize from static route
+            self.port = "static"
+            self.domain = static_route.domain
+            self.backend_proto = "http" if static_route.backend_url.startswith("http://") else "https"
+            self.backend_path = static_route.backend_path
+            self.force_ssl = static_route.force_ssl
+            self.support_websocket = static_route.support_websocket
+            self.resolved_host_port = None
+            self._static_backend_url = static_route.backend_url
+            self.is_static = True
+        else:
+            # Initialize from container labels
+            self.port = port
+            self.domain = labels_dict.get("domain", "")
+            self.backend_proto = labels_dict.get("backend-proto", "http")
+            self.backend_path = labels_dict.get("backend-path", "/")
+            self.force_ssl = labels_dict.get("force-ssl", "true").lower() == "true"
+            self.support_websocket = labels_dict.get("support-websocket", "false").lower() == "true"
+            self.resolved_host_port = None
+            self._static_backend_url = None
+            self.is_static = False
     
     @property
     def is_valid(self) -> bool:
         """Check if service has valid configuration."""
+        if self.is_static:
+            return bool(self.domain and self._static_backend_url)
         return bool(self.domain and self.port)
     
-    def backend_url(self, host_ip: str) -> str:
+    def backend_url(self, host_ip: str = None) -> str:
         """Get the backend URL for this service."""
-        path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
-        # Use resolved host port if available, otherwise fall back to container port
-        port = self.resolved_host_port if self.resolved_host_port else self.port
-        return f"{self.backend_proto}://{host_ip}:{port}{path}"
+        if self.is_static:
+            # For static routes, return the configured backend URL directly
+            path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
+            if self._static_backend_url.endswith('/') and path.startswith('/'):
+                path = path[1:]  # Remove duplicate slash
+            return f"{self._static_backend_url.rstrip('/')}{path}"
+        else:
+            # For container services, construct URL from host and port
+            path = self.backend_path if self.backend_path.startswith('/') else f"/{self.backend_path}"
+            # Use resolved host port if available, otherwise fall back to container port
+            port = self.resolved_host_port if self.resolved_host_port else self.port
+            return f"{self.backend_proto}://{host_ip}:{port}{path}"
     
     def to_dict(self) -> dict:
         """Convert service to dictionary representation."""
@@ -45,7 +68,9 @@ class ServiceInfo:
             "backend_path": self.backend_path,
             "force_ssl": self.force_ssl,
             "support_websocket": self.support_websocket,
-            "resolved_host_port": self.resolved_host_port
+            "resolved_host_port": self.resolved_host_port,
+            "is_static": self.is_static,
+            "static_backend_url": self._static_backend_url if self.is_static else None
         }
 
 

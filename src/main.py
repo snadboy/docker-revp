@@ -11,6 +11,7 @@ from .logger import main_logger
 from .ssh_config import SSHConfigManager
 from .docker_monitor import DockerMonitor
 from .caddy_manager import CaddyManager
+from .static_routes import StaticRoutesManager
 from .api.app import create_app
 
 
@@ -21,6 +22,7 @@ class DockerMonitorService:
         self.ssh_manager: Optional[SSHConfigManager] = None
         self.docker_monitor: Optional[DockerMonitor] = None
         self.caddy_manager: Optional[CaddyManager] = None
+        self.static_routes_manager: Optional[StaticRoutesManager] = None
         self.app = None
         self._shutdown_event = asyncio.Event()
     
@@ -43,6 +45,17 @@ class DockerMonitorService:
             self.caddy_manager = CaddyManager()
             await self.caddy_manager.start()
             
+            # Initialize static routes manager
+            main_logger.info("Initializing static routes manager")
+            self.static_routes_manager = StaticRoutesManager(settings.static_routes_file)
+            static_routes = self.static_routes_manager.get_routes()
+            if static_routes:
+                main_logger.info(f"Loading {len(static_routes)} static routes into Caddy")
+                await self.caddy_manager.update_static_routes(static_routes)
+            
+            # Start file watching for static routes
+            self.static_routes_manager.start_watching(self._on_static_routes_changed)
+            
             # Initialize Docker monitor
             main_logger.info("Initializing Docker monitor")
             self.docker_monitor = DockerMonitor(caddy_manager=self.caddy_manager)
@@ -52,7 +65,8 @@ class DockerMonitorService:
             self.app = create_app(
                 docker_monitor=self.docker_monitor,
                 caddy_manager=self.caddy_manager,
-                ssh_manager=self.ssh_manager
+                ssh_manager=self.ssh_manager,
+                static_routes_manager=self.static_routes_manager
             )
             
             main_logger.info("All components started successfully")
@@ -61,6 +75,15 @@ class DockerMonitorService:
             main_logger.error(f"Failed to start service: {e}")
             await self.stop()
             raise
+    
+    async def _on_static_routes_changed(self, new_routes: list) -> None:
+        """Handle static routes file changes."""
+        try:
+            main_logger.info(f"Static routes changed, updating Caddy configuration ({len(new_routes)} routes)")
+            await self.caddy_manager.update_static_routes(new_routes)
+            main_logger.info("Static routes successfully updated in Caddy")
+        except Exception as e:
+            main_logger.error(f"Error updating static routes in Caddy: {e}")
     
     async def stop(self) -> None:
         """Stop all components."""
@@ -73,6 +96,10 @@ class DockerMonitorService:
         # Stop Caddy manager
         if self.caddy_manager:
             await self.caddy_manager.stop()
+        
+        # Stop static routes file watcher
+        if self.static_routes_manager:
+            self.static_routes_manager.stop_watching()
         
         main_logger.info("Docker Monitor service stopped")
     

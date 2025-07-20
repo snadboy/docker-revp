@@ -1,0 +1,38 @@
+# Static routes configuration for RevP
+# This file is automatically monitored for changes
+
+static_routes:
+  # Example API service
+  - domain: api6.test.local
+    backend_url: http://localhost:8000
+    backend_path: /
+    force_ssl: false
+    support_websocket: false
+
+  # Example admin interface
+  - domain: admin.test.local
+    backend_url: https://192.168.1.101:8443
+    backend_path: /dashboard
+    force_ssl: true
+    support_websocket: true
+
+  # Example monitoring service
+  - domain: monitoring.test.local
+    backend_url: http://monitoring-server:9090
+    backend_path: /
+    force_ssl: true
+    support_websocket: false
+
+  # New test route - added automatically!
+  - domain: newroute.test.local
+    backend_url: http://192.168.1.200:5000
+    backend_path: /api
+    force_ssl: true
+    support_websocket: true
+
+  # Another route to test file watching
+  - domain: filewatch.test.local
+    backend_url: http://192.168.1.201:6000
+    backend_path: /
+    force_ssl: false
+    support_websocket: false
