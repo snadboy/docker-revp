@@ -1,3 +1,220 @@
+// Sortable Resizable Table Widget
+class SortableResizableTable {
+    constructor(tableSelector, options = {}) {
+        this.tableSelector = tableSelector;
+        this.table = document.querySelector(tableSelector);
+        this.options = {
+            hasExpandColumn: options.hasExpandColumn || false,
+            sortCallback: options.sortCallback || null,
+            columns: options.columns || [],
+            ...options
+        };
+        
+        // State
+        this.currentSort = { column: null, direction: 'asc' };
+        this.isResizing = false;
+        this.currentResizer = null;
+        this.currentHeader = null;
+        this.startX = 0;
+        this.startWidth = 0;
+        
+        // Register this instance
+        SortableResizableTable.instances.push(this);
+        
+        this.init();
+    }
+    
+    init() {
+        if (!this.table) {
+            console.warn(`Table not found: ${this.tableSelector}`);
+            return;
+        }
+        
+        this.setupSorting();
+        this.setupResizing();
+    }
+    
+    setupSorting() {
+        const sortableHeaders = this.table.querySelectorAll('th.sortable');
+        
+        sortableHeaders.forEach(header => {
+            header.addEventListener('click', (e) => {
+                // Don't sort if we're clicking on a resizer
+                if (e.target.classList.contains('column-resizer')) return;
+                
+                const sortKey = header.dataset.sort;
+                if (!sortKey) return;
+                
+                // Update sort direction
+                if (this.currentSort.column === sortKey) {
+                    this.currentSort.direction = this.currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.currentSort.column = sortKey;
+                    this.currentSort.direction = 'asc';
+                }
+                
+                this.updateSortIndicators();
+                
+                // Call the sort callback
+                if (this.options.sortCallback) {
+                    this.options.sortCallback(this.currentSort.column, this.currentSort.direction);
+                }
+            });
+        });
+    }
+    
+    updateSortIndicators() {
+        const headers = this.table.querySelectorAll('th.sortable');
+        headers.forEach(header => {
+            header.classList.remove('sort-asc', 'sort-desc');
+            if (header.dataset.sort === this.currentSort.column) {
+                header.classList.add(this.currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        });
+    }
+    
+    setupResizing() {
+        // Remove existing resizers
+        const existingResizers = this.table.querySelectorAll('.column-resizer');
+        existingResizers.forEach(resizer => resizer.remove());
+        
+        // Determine which headers to make resizable
+        let selector = 'th:not(:last-child)'; // All except last column
+        if (this.options.hasExpandColumn) {
+            selector = 'th:not(:first-child):not(:last-child)'; // Skip first and last
+        }
+        
+        const headers = this.table.querySelectorAll(selector);
+        
+        headers.forEach(header => {
+            const resizer = document.createElement('div');
+            resizer.className = 'column-resizer';
+            header.appendChild(resizer);
+            
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.startResize(e, header, resizer);
+            });
+        });
+        
+        // Add global mouse events (only once)
+        if (!SortableResizableTable.globalEventsAdded) {
+            document.addEventListener('mousemove', (e) => this.handleGlobalMouseMove(e));
+            document.addEventListener('mouseup', () => this.handleGlobalMouseUp());
+            SortableResizableTable.globalEventsAdded = true;
+        }
+    }
+    
+    startResize(e, header, resizer) {
+        this.isResizing = true;
+        this.currentResizer = resizer;
+        this.currentHeader = header;
+        this.startX = e.pageX;
+        this.startWidth = parseInt(document.defaultView.getComputedStyle(header).width, 10);
+        
+        const allHeaders = Array.from(this.table.querySelectorAll('th'));
+        const targetColumnIndex = allHeaders.indexOf(header);
+        
+        // Lock widths for columns to the left
+        for (let i = 0; i < targetColumnIndex; i++) {
+            const leftHeader = allHeaders[i];
+            const currentWidth = parseInt(document.defaultView.getComputedStyle(leftHeader).width, 10);
+            leftHeader.style.width = currentWidth + 'px';
+            
+            // Also lock corresponding td widths
+            const rows = this.table.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const cell = row.children[i];
+                if (cell) {
+                    cell.style.width = currentWidth + 'px';
+                }
+            });
+        }
+        
+        // Set initial width for target column
+        header.style.width = this.startWidth + 'px';
+        const rows = this.table.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+            const cell = row.children[targetColumnIndex];
+            if (cell) {
+                cell.style.width = this.startWidth + 'px';
+            }
+        });
+        
+        resizer.classList.add('resizing');
+        this.table.closest('.table-container').classList.add('resizing');
+    }
+    
+    handleGlobalMouseMove(e) {
+        // Find the active table widget
+        const activeWidget = SortableResizableTable.instances.find(widget => widget.isResizing);
+        if (activeWidget) {
+            activeWidget.doResize(e);
+        }
+    }
+    
+    handleGlobalMouseUp() {
+        // Find the active table widget and stop resizing
+        const activeWidget = SortableResizableTable.instances.find(widget => widget.isResizing);
+        if (activeWidget) {
+            activeWidget.stopResize();
+        }
+    }
+    
+    doResize(e) {
+        if (!this.isResizing || !this.currentHeader) return;
+        
+        const deltaX = e.pageX - this.startX;
+        const newWidth = this.startWidth + deltaX;
+        const minWidth = 80;
+        
+        if (newWidth < minWidth) return;
+        
+        this.currentHeader.style.width = newWidth + 'px';
+        
+        // Update corresponding td elements
+        const allHeaders = Array.from(this.table.querySelectorAll('th'));
+        const targetColumnIndex = allHeaders.indexOf(this.currentHeader);
+        const rows = this.table.querySelectorAll('tbody tr');
+        
+        rows.forEach(row => {
+            const cell = row.children[targetColumnIndex];
+            if (cell) {
+                cell.style.width = newWidth + 'px';
+            }
+        });
+    }
+    
+    stopResize() {
+        if (!this.isResizing) return;
+        
+        this.isResizing = false;
+        
+        if (this.currentResizer) {
+            this.currentResizer.classList.remove('resizing');
+            this.currentResizer = null;
+        }
+        
+        this.currentHeader = null;
+        this.table.closest('.table-container').classList.remove('resizing');
+    }
+    
+    // Public methods
+    setSortState(column, direction) {
+        this.currentSort = { column, direction };
+        this.updateSortIndicators();
+    }
+    
+    getSortState() {
+        return { ...this.currentSort };
+    }
+}
+
+// Static properties for managing instances
+SortableResizableTable.globalEventsAdded = false;
+SortableResizableTable.instances = [];
+
 // Dashboard JavaScript
 class Dashboard {
     constructor() {
@@ -6,14 +223,17 @@ class Dashboard {
         this.staticRoutes = [];
         this.healthData = {};
         this.summaryData = {};
+        this.staticRoutesData = [];
+        this.staticRoutesFileInfo = {};
         this.sortColumn = null;
         this.sortDirection = 'asc';
         this.expandedRows = new Set(); // Track expanded rows
-        this.resizing = false;
-        this.currentResizer = null;
-        this.startX = 0;
-        this.startWidth = 0;
-        this.globalResizeListenersAdded = false;
+        this.staticRoutesSortColumn = null;
+        this.staticRoutesSortDirection = 'asc';
+        
+        // Table widgets
+        this.containersTable = null;
+        this.staticRoutesTable = null;
         
         this.init();
     }
@@ -125,6 +345,9 @@ class Dashboard {
             case 'containers':
                 await this.loadContainersData();
                 break;
+            case 'static-routes':
+                await this.loadStaticRoutesData();
+                break;
             case 'health':
                 await this.loadHealthData();
                 break;
@@ -135,14 +358,14 @@ class Dashboard {
     }
 
     async refreshCurrentTab() {
-        // Store expanded state before refresh
+        // Store state before refresh
         if (this.currentTab === 'containers') {
             this.storeExpandedState();
         }
         
         await this.loadTabData(this.currentTab);
         
-        // Restore expanded state after refresh
+        // Restore state after refresh
         if (this.currentTab === 'containers') {
             this.restoreExpandedState();
         }
@@ -244,11 +467,17 @@ class Dashboard {
             
             this.updateContainersDisplay();
             this.setupContainerFilters();
-            // Only set up table sorting if not already initialized
-            if (!this.sortingInitialized) {
-                this.setupTableSorting();
-                this.setupColumnResizing();
-                this.sortingInitialized = true;
+            // Only set up table widget if not already initialized
+            if (!this.containersTable) {
+                this.containersTable = new SortableResizableTable('#containers-table', {
+                    hasExpandColumn: true,
+                    sortCallback: (sortKey, sortDirection) => {
+                        this.sortColumn = sortKey;
+                        this.sortDirection = sortDirection;
+                        this.closeAllExpandedRows();
+                        this.updateContainersDisplay();
+                    }
+                });
             }
         } catch (error) {
             console.error('Error loading containers data:', error);
@@ -530,44 +759,6 @@ class Dashboard {
         });
     }
     
-    setupTableSorting() {
-        const sortableHeaders = document.querySelectorAll('th.sortable');
-        
-        // Remove existing event listeners to prevent duplicates
-        sortableHeaders.forEach(header => {
-            header.replaceWith(header.cloneNode(true));
-        });
-        
-        // Get fresh references after cloning
-        const freshHeaders = document.querySelectorAll('th.sortable');
-        
-        freshHeaders.forEach(header => {
-            header.addEventListener('click', () => {
-                const sortKey = header.dataset.sort;
-                
-                // Close all open dropdown tables before sorting
-                this.closeAllExpandedRows();
-                
-                // Update sort direction
-                if (this.sortColumn === sortKey) {
-                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-                } else {
-                    this.sortColumn = sortKey;
-                    this.sortDirection = 'asc';
-                }
-                
-                // Update header classes
-                freshHeaders.forEach(h => {
-                    h.classList.remove('sort-asc', 'sort-desc');
-                });
-                
-                header.classList.add(this.sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-                
-                // Re-render table
-                this.updateContainersDisplay();
-            });
-        });
-    }
     
     sortContainers(containers) {
         return containers.sort((a, b) => {
@@ -622,133 +813,7 @@ class Dashboard {
         });
     }
 
-    setupColumnResizing() {
-        const table = document.querySelector('#containers-table');
-        if (!table) {
-            return;
-        }
-        
-        // Remove existing resizers first
-        const existingResizers = table.querySelectorAll('.column-resizer');
-        existingResizers.forEach(resizer => resizer.remove());
-        
-        // Skip first column (expand button) and last column for resizing
-        const headers = table.querySelectorAll('th:not(:first-child):not(:last-child)');
-        
-        headers.forEach((header, index) => {
-            // Add resizer element
-            const resizer = document.createElement('div');
-            resizer.className = 'column-resizer';
-            header.appendChild(resizer);
-            
-            // Add resize event listeners
-            resizer.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.startResize(e, header, resizer);
-            });
-        });
-        
-        // Only add global mouse event listeners once
-        if (!this.globalResizeListenersAdded) {
-            document.addEventListener('mousemove', (e) => this.doResize(e));
-            document.addEventListener('mouseup', () => this.stopResize());
-            this.globalResizeListenersAdded = true;
-        }
-    }
     
-    startResize(e, header, resizer) {
-        this.resizing = true;
-        this.currentResizer = resizer;
-        this.currentHeader = header;
-        this.startX = e.pageX;
-        this.startWidth = parseInt(document.defaultView.getComputedStyle(header).width, 10);
-        
-        const table = header.closest('table');
-        const allHeaders = Array.from(table.querySelectorAll('th'));
-        const targetColumnIndex = allHeaders.indexOf(header);
-        
-        // Lock widths for ALL columns to the LEFT of the target column
-        // This prevents them from changing during resize
-        for (let i = 0; i < targetColumnIndex; i++) {
-            const leftHeader = allHeaders[i];
-            const currentWidth = parseInt(document.defaultView.getComputedStyle(leftHeader).width, 10);
-            leftHeader.style.width = currentWidth + 'px';
-            
-            // Also lock corresponding td widths
-            const rows = table.querySelectorAll('tbody tr');
-            rows.forEach(row => {
-                const cell = row.children[i];
-                if (cell) {
-                    cell.style.width = currentWidth + 'px';
-                }
-            });
-        }
-        
-        // Set initial width for the target column
-        header.style.width = this.startWidth + 'px';
-        const rows = table.querySelectorAll('tbody tr');
-        rows.forEach(row => {
-            const cell = row.children[targetColumnIndex];
-            if (cell) {
-                cell.style.width = this.startWidth + 'px';
-            }
-        });
-        
-        // Do NOT set explicit widths for columns to the RIGHT
-        // They will automatically adjust to fill remaining space
-        
-        resizer.classList.add('resizing');
-        document.querySelector('.table-container').classList.add('resizing');
-        
-        // Prevent sorting when resizing
-        e.stopPropagation();
-    }
-    
-    doResize(e) {
-        if (!this.resizing || !this.currentResizer || !this.currentHeader) return;
-        
-        const deltaX = e.pageX - this.startX;
-        const newWidth = this.startWidth + deltaX;
-        const minWidth = 80;
-        
-        // Apply minimum width constraint
-        if (newWidth < minWidth) {
-            return; // Don't resize below minimum
-        }
-        
-        // Update ONLY the target column width
-        // Columns to the left are locked (from startResize)
-        // Columns to the right will automatically adjust to fill remaining space
-        this.currentHeader.style.width = newWidth + 'px';
-        
-        // Update corresponding td elements for the target column only
-        const table = this.currentHeader.closest('table');
-        const allHeaders = Array.from(table.querySelectorAll('th'));
-        const targetColumnIndex = allHeaders.indexOf(this.currentHeader);
-        const rows = table.querySelectorAll('tbody tr');
-        
-        rows.forEach(row => {
-            const cell = row.children[targetColumnIndex];
-            if (cell) {
-                cell.style.width = newWidth + 'px';
-            }
-        });
-    }
-    
-    stopResize() {
-        if (!this.resizing) return;
-        
-        this.resizing = false;
-        
-        if (this.currentResizer) {
-            this.currentResizer.classList.remove('resizing');
-            this.currentResizer = null;
-        }
-        
-        this.currentHeader = null;
-        document.querySelector('.table-container').classList.remove('resizing');
-    }
 
     setupContainerFilters() {
         // Populate host filter
@@ -797,6 +862,11 @@ class Dashboard {
                 containerRow.classList.add('expanded');
             }
         });
+        
+        // Also restore sort state for containers table
+        if (this.containersTable && this.sortColumn) {
+            this.containersTable.setSortState(this.sortColumn, this.sortDirection);
+        }
     }
     
     closeAllExpandedRows() {
@@ -958,9 +1028,404 @@ class Dashboard {
             container.appendChild(entry);
         });
     }
+
+    // Static Routes Tab
+    async loadStaticRoutesData() {
+        try {
+            // Load both routes and file info
+            const [routesResponse, fileInfoResponse] = await Promise.all([
+                fetch('/api/static-routes'),
+                fetch('/api/static-routes/info/file')
+            ]);
+            
+            if (routesResponse.ok) {
+                this.staticRoutesData = await routesResponse.json();
+            } else {
+                console.warn('Static routes API not available:', routesResponse.status);
+                this.staticRoutesData = [];
+            }
+            
+            if (fileInfoResponse.ok) {
+                this.staticRoutesFileInfo = await fileInfoResponse.json();
+            } else {
+                this.staticRoutesFileInfo = {};
+            }
+            
+            this.updateStaticRoutesDisplay();
+            this.setupStaticRoutesEventHandlers();
+            
+            // Initialize table widget
+            if (!this.staticRoutesTable) {
+                this.staticRoutesTable = new SortableResizableTable('#static-routes-table', {
+                    hasExpandColumn: false,
+                    sortCallback: (sortKey, sortDirection) => {
+                        this.staticRoutesSortColumn = sortKey;
+                        this.staticRoutesSortDirection = sortDirection;
+                        this.updateStaticRoutesDisplay();
+                    }
+                });
+            }
+            
+        } catch (error) {
+            console.error('Error loading static routes data:', error);
+            this.staticRoutesData = [];
+            this.updateStaticRoutesDisplay();
+        }
+    }
+
+    updateStaticRoutesDisplay() {
+        // Update info cards
+        const totalRoutesEl = document.getElementById('total-static-routes');
+        const fileStatusEl = document.getElementById('file-status');
+        const lastModifiedEl = document.getElementById('last-modified');
+        
+        if (totalRoutesEl) {
+            totalRoutesEl.textContent = this.staticRoutesData.length;
+        }
+        
+        if (fileStatusEl) {
+            fileStatusEl.textContent = this.staticRoutesFileInfo.exists ? 'OK' : 'Missing';
+        }
+        
+        if (lastModifiedEl) {
+            if (this.staticRoutesFileInfo.last_modified) {
+                const date = new Date(this.staticRoutesFileInfo.last_modified);
+                lastModifiedEl.textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            } else {
+                lastModifiedEl.textContent = 'Unknown';
+            }
+        }
+        
+        // Update table
+        const tbody = document.querySelector('#static-routes-table tbody');
+        if (!tbody) return;
+        
+        tbody.innerHTML = '';
+        
+        // Sort routes if needed
+        const sortedRoutes = this.staticRoutesSortColumn 
+            ? this.sortStaticRoutes([...this.staticRoutesData])
+            : this.staticRoutesData;
+        
+        sortedRoutes.forEach(route => {
+            const row = document.createElement('tr');
+            
+            const sslBadge = route.force_ssl 
+                ? '<span class="badge badge-success">Yes</span>' 
+                : '<span class="badge badge-muted">No</span>';
+                
+            const wsBadge = route.support_websocket 
+                ? '<span class="badge badge-success">Yes</span>' 
+                : '<span class="badge badge-muted">No</span>';
+            
+            row.innerHTML = `
+                <td title="${route.domain}">${route.domain}</td>
+                <td title="${route.backend_url}">${route.backend_url}</td>
+                <td title="${route.backend_path}">${route.backend_path}</td>
+                <td>${sslBadge}</td>
+                <td>${wsBadge}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-small btn-secondary" onclick="dashboard.editStaticRoute('${route.domain}')">
+                            Edit
+                        </button>
+                        <button class="btn btn-small btn-danger" onclick="dashboard.deleteStaticRoute('${route.domain}')">
+                            Delete
+                        </button>
+                    </div>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    }
+
+    sortStaticRoutes(routes) {
+        return routes.sort((a, b) => {
+            let aValue, bValue;
+            
+            switch (this.staticRoutesSortColumn) {
+                case 'domain':
+                    aValue = a.domain.toLowerCase();
+                    bValue = b.domain.toLowerCase();
+                    break;
+                case 'backend_url':
+                    aValue = a.backend_url.toLowerCase();
+                    bValue = b.backend_url.toLowerCase();
+                    break;
+                case 'backend_path':
+                    aValue = a.backend_path.toLowerCase();
+                    bValue = b.backend_path.toLowerCase();
+                    break;
+                case 'force_ssl':
+                    aValue = a.force_ssl ? 1 : 0;
+                    bValue = b.force_ssl ? 1 : 0;
+                    break;
+                case 'support_websocket':
+                    aValue = a.support_websocket ? 1 : 0;
+                    bValue = b.support_websocket ? 1 : 0;
+                    break;
+                default:
+                    return 0;
+            }
+            
+            if (aValue < bValue) {
+                return this.staticRoutesSortDirection === 'asc' ? -1 : 1;
+            }
+            if (aValue > bValue) {
+                return this.staticRoutesSortDirection === 'asc' ? 1 : -1;
+            }
+            return 0;
+        });
+    }
+
+
+
+    setupStaticRoutesEventHandlers() {
+        // Add route button
+        const addBtn = document.getElementById('add-route-btn');
+        if (addBtn) {
+            addBtn.onclick = () => this.showRouteModal();
+        }
+        
+        // Modal event handlers
+        this.setupModalEventHandlers();
+    }
+
+    setupModalEventHandlers() {
+        // Route modal handlers
+        const routeModal = document.getElementById('route-modal');
+        const routeForm = document.getElementById('route-form');
+        const modalClose = document.getElementById('modal-close');
+        const modalCancel = document.getElementById('modal-cancel');
+        
+        // Close modal handlers
+        [modalClose, modalCancel].forEach(btn => {
+            if (btn) {
+                btn.onclick = () => this.hideRouteModal();
+            }
+        });
+        
+        // Click outside to close
+        if (routeModal) {
+            routeModal.onclick = (e) => {
+                if (e.target === routeModal) {
+                    this.hideRouteModal();
+                }
+            };
+        }
+        
+        // Form submission
+        if (routeForm) {
+            routeForm.onsubmit = (e) => {
+                e.preventDefault();
+                this.saveStaticRoute();
+            };
+        }
+        
+        // Confirmation modal handlers
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmClose = document.getElementById('confirm-close');
+        const confirmCancel = document.getElementById('confirm-cancel');
+        const confirmOk = document.getElementById('confirm-ok');
+        
+        [confirmClose, confirmCancel].forEach(btn => {
+            if (btn) {
+                btn.onclick = () => this.hideConfirmModal();
+            }
+        });
+        
+        if (confirmModal) {
+            confirmModal.onclick = (e) => {
+                if (e.target === confirmModal) {
+                    this.hideConfirmModal();
+                }
+            };
+        }
+        
+        if (confirmOk) {
+            confirmOk.onclick = () => this.executeConfirmAction();
+        }
+    }
+
+    showRouteModal(route = null) {
+        const modal = document.getElementById('route-modal');
+        const title = document.getElementById('modal-title');
+        const form = document.getElementById('route-form');
+        const validation = document.getElementById('form-validation');
+        
+        // Reset form and validation
+        form.reset();
+        validation.className = 'form-validation';
+        validation.style.display = 'none';
+        
+        if (route) {
+            // Edit mode
+            title.textContent = 'Edit Static Route';
+            document.getElementById('route-domain').value = route.domain;
+            document.getElementById('route-backend-url').value = route.backend_url;
+            document.getElementById('route-backend-path').value = route.backend_path;
+            document.getElementById('route-force-ssl').checked = route.force_ssl;
+            document.getElementById('route-support-websocket').checked = route.support_websocket;
+            
+            // Store original domain for editing
+            form.dataset.originalDomain = route.domain;
+        } else {
+            // Add mode
+            title.textContent = 'Add Static Route';
+            document.getElementById('route-backend-path').value = '/';
+            document.getElementById('route-force-ssl').checked = true;
+            delete form.dataset.originalDomain;
+        }
+        
+        modal.classList.add('show');
+    }
+
+    hideRouteModal() {
+        const modal = document.getElementById('route-modal');
+        modal.classList.remove('show');
+    }
+
+    async saveStaticRoute() {
+        const form = document.getElementById('route-form');
+        const validation = document.getElementById('form-validation');
+        const saveBtn = document.getElementById('modal-save');
+        
+        // Get form data
+        const formData = new FormData(form);
+        const routeData = {
+            domain: formData.get('domain').trim(),
+            backend_url: formData.get('backend_url').trim(),
+            backend_path: formData.get('backend_path').trim() || '/',
+            force_ssl: formData.has('force_ssl'),
+            support_websocket: formData.has('support_websocket')
+        };
+        
+        // Show loading state
+        saveBtn.classList.add('btn-loading');
+        validation.style.display = 'none';
+        
+        try {
+            let response;
+            const originalDomain = form.dataset.originalDomain;
+            
+            if (originalDomain) {
+                // Edit existing route
+                response = await fetch(`/api/static-routes/${encodeURIComponent(originalDomain)}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(routeData)
+                });
+            } else {
+                // Create new route
+                response = await fetch('/api/static-routes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(routeData)
+                });
+            }
+            
+            if (response.ok) {
+                validation.className = 'form-validation success';
+                validation.textContent = originalDomain ? 'Route updated successfully!' : 'Route created successfully!';
+                validation.style.display = 'block';
+                
+                // Reload data and close modal after short delay
+                setTimeout(() => {
+                    this.hideRouteModal();
+                    this.loadStaticRoutesData();
+                }, 1000);
+            } else {
+                const errorData = await response.json();
+                validation.className = 'form-validation error';
+                validation.textContent = errorData.detail || 'Failed to save route';
+                validation.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error saving static route:', error);
+            validation.className = 'form-validation error';
+            validation.textContent = 'Network error. Please try again.';
+            validation.style.display = 'block';
+        } finally {
+            saveBtn.classList.remove('btn-loading');
+        }
+    }
+
+    editStaticRoute(domain) {
+        const route = this.staticRoutesData.find(r => r.domain === domain);
+        if (route) {
+            this.showRouteModal(route);
+        }
+    }
+
+    deleteStaticRoute(domain) {
+        this.showConfirmModal(
+            'Delete Static Route',
+            `Are you sure you want to delete the static route for "${domain}"? This action cannot be undone.`,
+            () => this.executeDeleteRoute(domain)
+        );
+    }
+
+    showConfirmModal(title, message, action) {
+        const modal = document.getElementById('confirm-modal');
+        const titleEl = document.getElementById('confirm-title');
+        const messageEl = document.getElementById('confirm-message');
+        
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        
+        // Store action for later execution
+        this.confirmAction = action;
+        
+        modal.classList.add('show');
+    }
+
+    hideConfirmModal() {
+        const modal = document.getElementById('confirm-modal');
+        modal.classList.remove('show');
+        this.confirmAction = null;
+    }
+
+    executeConfirmAction() {
+        if (this.confirmAction) {
+            this.confirmAction();
+        }
+        this.hideConfirmModal();
+    }
+
+    async executeDeleteRoute(domain) {
+        const confirmBtn = document.getElementById('confirm-ok');
+        
+        // Show loading state
+        confirmBtn.classList.add('btn-loading');
+        
+        try {
+            const response = await fetch(`/api/static-routes/${encodeURIComponent(domain)}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                // Reload data after successful deletion
+                this.hideConfirmModal();
+                this.loadStaticRoutesData();
+            } else {
+                const errorData = await response.json();
+                alert(`Failed to delete route: ${errorData.detail || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Error deleting static route:', error);
+            alert('Network error. Please try again.');
+        } finally {
+            confirmBtn.classList.remove('btn-loading');
+        }
+    }
 }
 
 // Initialize dashboard when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    new Dashboard();
+    window.dashboard = new Dashboard();
 });

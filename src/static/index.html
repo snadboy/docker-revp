@@ -24,6 +24,7 @@
         <div class="tabs">
             <button class="tab-button active" data-tab="summary">Summary</button>
             <button class="tab-button" data-tab="containers">Containers</button>
+            <button class="tab-button" data-tab="static-routes">Static Routes</button>
             <button class="tab-button" data-tab="health">Health</button>
             <button class="tab-button" data-tab="version">Version</button>
         </div>
@@ -109,6 +110,62 @@
                 </div>
             </div>
 
+            <!-- Static Routes Tab -->
+            <div id="static-routes-tab" class="tab-panel">
+                <div class="static-routes-header">
+                    <h2>Static Routes Management</h2>
+                    <button id="add-route-btn" class="btn btn-primary">
+                        <span class="icon">+</span>
+                        Add Static Route
+                    </button>
+                </div>
+                
+                <div class="static-routes-info">
+                    <div class="info-card">
+                        <h3>Total Routes</h3>
+                        <span id="total-static-routes" class="info-value">-</span>
+                    </div>
+                    <div class="info-card">
+                        <h3>File Status</h3>
+                        <span id="file-status" class="info-value">-</span>
+                    </div>
+                    <div class="info-card">
+                        <h3>Last Modified</h3>
+                        <span id="last-modified" class="info-value">-</span>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table id="static-routes-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="domain">Domain</th>
+                                <th class="sortable" data-sort="backend_url">Backend URL</th>
+                                <th class="sortable" data-sort="backend_path">Backend Path</th>
+                                <th class="sortable" data-sort="force_ssl">Force SSL</th>
+                                <th class="sortable" data-sort="support_websocket">WebSocket</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Dynamically populated -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="static-routes-help">
+                    <h3>About Static Routes</h3>
+                    <p>Static routes allow you to proxy traffic to external services that are not running as Docker containers. Changes are automatically applied to Caddy and saved to the YAML configuration file.</p>
+                    <ul>
+                        <li><strong>Domain:</strong> The domain name that will be proxied (e.g., api.example.com)</li>
+                        <li><strong>Backend URL:</strong> The target service URL (e.g., http://192.168.1.100:8080)</li>
+                        <li><strong>Backend Path:</strong> Optional path prefix for the backend service</li>
+                        <li><strong>Force SSL:</strong> Redirect HTTP requests to HTTPS</li>
+                        <li><strong>WebSocket:</strong> Enable WebSocket support for the route</li>
+                    </ul>
+                </div>
+            </div>
+
             <!-- Health Tab -->
             <div id="health-tab" class="tab-panel">
                 <div class="health-grid">
@@ -177,6 +234,87 @@
             </p>
         </div>
     </footer>
+
+    <!-- Static Route Modal -->
+    <div id="route-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Add Static Route</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <form id="route-form" class="modal-body">
+                <div class="form-group">
+                    <label for="route-domain">Domain *</label>
+                    <input type="text" id="route-domain" name="domain" required 
+                           placeholder="example.com" 
+                           pattern="^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$">
+                    <small class="form-help">The domain name to proxy (e.g., api.example.com)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="route-backend-url">Backend URL *</label>
+                    <input type="url" id="route-backend-url" name="backend_url" required 
+                           placeholder="http://192.168.1.100:8080"
+                           pattern="^https?://.*">
+                    <small class="form-help">The target service URL (must start with http:// or https://)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="route-backend-path">Backend Path</label>
+                    <input type="text" id="route-backend-path" name="backend_path" value="/" 
+                           placeholder="/" pattern="^/.*">
+                    <small class="form-help">Optional path prefix for the backend service</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="route-force-ssl" name="force_ssl" checked>
+                        <span class="checkmark"></span>
+                        Force SSL (redirect HTTP to HTTPS)
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="route-support-websocket" name="support_websocket">
+                        <span class="checkmark"></span>
+                        Support WebSocket connections
+                    </label>
+                </div>
+                
+                <div class="form-validation" id="form-validation">
+                    <!-- Validation messages will appear here -->
+                </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="modal-save" form="route-form">
+                    <span class="btn-text">Save Route</span>
+                    <span class="btn-loading" style="display: none;">Saving...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3 id="confirm-title">Confirm Action</h3>
+                <button class="modal-close" id="confirm-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message">Are you sure?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirm-ok">
+                    <span class="btn-text">Confirm</span>
+                    <span class="btn-loading" style="display: none;">Processing...</span>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/dashboard.js?v=20250714i"></script>
 </body>
