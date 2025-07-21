@@ -1,3 +1,10 @@
+# [3.3.0](https://github.com/snadboy/docker-revp/compare/v3.2.0...v3.3.0) (2025-07-21)
+
+
+### Features
+
+* implement comprehensive static routes CRUD management system ([7ae8b5f](https://github.com/snadboy/docker-revp/commit/7ae8b5fadf82018ae6a48edeca85b680c3827a17))
+
 # [3.2.0](https://github.com/snadboy/docker-revp/compare/v3.1.0...v3.2.0) (2025-07-21)
 
 
