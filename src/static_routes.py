@@ -1,9 +1,17 @@
 """Static routes configuration management for Docker Reverse Proxy."""
 import asyncio
+import tempfile
+import shutil
+import time
 import yaml
+try:
+    import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    HAS_FCNTL = False
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ValidationError
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
@@ -182,6 +190,293 @@ class StaticRoutesManager:
         except Exception as e:
             api_logger.error(f"Error during static routes reload: {e}")
     
+    def save_routes(self, routes: List[StaticRoute]) -> bool:
+        """
+        Save static routes to YAML file atomically.
+        
+        Args:
+            routes: List of StaticRoute objects to save
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Create configuration object
+            config = StaticRoutesConfig(static_routes=routes)
+            
+            # Convert to dict for YAML serialization
+            config_dict = {
+                "static_routes": [route.model_dump() for route in routes]
+            }
+            
+            # Create YAML content with header comment
+            yaml_content = self._generate_yaml_content(config_dict)
+            
+            # Write atomically using temp file
+            success = self._write_file_atomic(yaml_content)
+            
+            if success:
+                # Update internal state
+                self._routes = routes
+                self._file_mtime = self.config_file_path.stat().st_mtime if self.config_file_path.exists() else None
+                api_logger.info(f"Successfully saved {len(routes)} static routes to {self.config_file_path}")
+                return True
+            else:
+                api_logger.error(f"Failed to save static routes to {self.config_file_path}")
+                return False
+                
+        except Exception as e:
+            api_logger.error(f"Error saving static routes: {e}")
+            return False
+    
+    def add_route(self, route: StaticRoute) -> bool:
+        """
+        Add a new static route.
+        
+        Args:
+            route: StaticRoute object to add
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Load current routes
+            current_routes = self.get_routes()
+            
+            # Check for domain conflicts
+            if any(existing.domain == route.domain for existing in current_routes):
+                api_logger.warning(f"Route with domain {route.domain} already exists")
+                return False
+            
+            # Add new route
+            updated_routes = current_routes + [route]
+            
+            # Save updated routes
+            return self.save_routes(updated_routes)
+            
+        except Exception as e:
+            api_logger.error(f"Error adding static route: {e}")
+            return False
+    
+    def update_route(self, domain: str, updated_route: StaticRoute) -> bool:
+        """
+        Update an existing static route.
+        
+        Args:
+            domain: Domain of the route to update
+            updated_route: New StaticRoute object
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Load current routes
+            current_routes = self.get_routes()
+            
+            # Find and update the route
+            updated_routes = []
+            route_found = False
+            
+            for route in current_routes:
+                if route.domain == domain:
+                    updated_routes.append(updated_route)
+                    route_found = True
+                else:
+                    updated_routes.append(route)
+            
+            if not route_found:
+                api_logger.warning(f"Route with domain {domain} not found for update")
+                return False
+            
+            # Check for domain conflicts if domain changed
+            if updated_route.domain != domain:
+                if any(existing.domain == updated_route.domain for existing in updated_routes if existing.domain != updated_route.domain):
+                    api_logger.warning(f"Cannot update route: domain {updated_route.domain} already exists")
+                    return False
+            
+            # Save updated routes
+            return self.save_routes(updated_routes)
+            
+        except Exception as e:
+            api_logger.error(f"Error updating static route: {e}")
+            return False
+    
+    def delete_route(self, domain: str) -> bool:
+        """
+        Delete a static route by domain.
+        
+        Args:
+            domain: Domain of the route to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Load current routes
+            current_routes = self.get_routes()
+            
+            # Filter out the route to delete
+            updated_routes = [route for route in current_routes if route.domain != domain]
+            
+            if len(updated_routes) == len(current_routes):
+                api_logger.warning(f"Route with domain {domain} not found for deletion")
+                return False
+            
+            # Save updated routes
+            return self.save_routes(updated_routes)
+            
+        except Exception as e:
+            api_logger.error(f"Error deleting static route: {e}")
+            return False
+    
+    def get_route_by_domain(self, domain: str) -> Optional[StaticRoute]:
+        """
+        Get a specific route by domain.
+        
+        Args:
+            domain: Domain to search for
+            
+        Returns:
+            StaticRoute if found, None otherwise
+        """
+        routes = self.get_routes()
+        for route in routes:
+            if route.domain == domain:
+                return route
+        return None
+    
+    def validate_route(self, route_data: Dict[str, Any]) -> StaticRoute:
+        """
+        Validate route data and return StaticRoute object.
+        
+        Args:
+            route_data: Dictionary with route configuration
+            
+        Returns:
+            StaticRoute: Validated route object
+            
+        Raises:
+            ValidationError: If validation fails
+        """
+        return StaticRoute(**route_data)
+    
+    def _generate_yaml_content(self, config_dict: Dict[str, Any]) -> str:
+        """Generate YAML content with header comments."""
+        header = """# Static routes configuration for RevP
+# This file is automatically monitored for changes
+# 
+# WARNING: While you can edit this file manually, it's recommended to use
+# the dashboard interface to prevent configuration conflicts and ensure
+# proper validation.
+#
+# Format:
+# static_routes:
+#   - domain: example.com
+#     backend_url: http://backend-server:8080
+#     backend_path: /
+#     force_ssl: true
+#     support_websocket: false
+
+"""
+        
+        yaml_content = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+        return header + yaml_content
+    
+    def _write_file_atomic(self, content: str) -> bool:
+        """
+        Write content to file atomically using temp file and rename.
+        
+        Args:
+            content: Content to write
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Ensure parent directory exists
+            self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Create temporary file in same directory
+            temp_file = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    dir=self.config_file_path.parent,
+                    prefix=f".{self.config_file_path.name}.tmp",
+                    delete=False,
+                    encoding='utf-8'
+                ) as f:
+                    temp_file = f.name
+                    
+                    # Try to acquire lock on original file if it exists (Unix only)
+                    lock_acquired = False
+                    if self.config_file_path.exists() and HAS_FCNTL:
+                        try:
+                            with open(self.config_file_path, 'r') as lock_file:
+                                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                lock_acquired = True
+                        except (IOError, OSError):
+                            # File is locked by another process, wait briefly
+                            time.sleep(0.1)
+                    
+                    # Write content to temp file
+                    f.write(content)
+                    f.flush()
+                
+                # Atomically replace original file with temp file
+                shutil.move(temp_file, self.config_file_path)
+                
+                # Set appropriate permissions
+                self.config_file_path.chmod(0o644)
+                
+                return True
+                
+            except Exception as e:
+                # Clean up temp file if it exists
+                if temp_file and Path(temp_file).exists():
+                    try:
+                        Path(temp_file).unlink()
+                    except:
+                        pass
+                raise e
+                
+        except Exception as e:
+            api_logger.error(f"Error writing file atomically: {e}")
+            return False
+    
+    def get_file_info(self) -> Dict[str, Any]:
+        """
+        Get information about the static routes file.
+        
+        Returns:
+            Dict with file information
+        """
+        try:
+            if not self.config_file_path.exists():
+                return {
+                    "exists": False,
+                    "path": str(self.config_file_path),
+                    "size": 0,
+                    "mtime": None,
+                    "routes_count": 0
+                }
+            
+            stat = self.config_file_path.stat()
+            routes = self.get_routes()
+            
+            return {
+                "exists": True,
+                "path": str(self.config_file_path),
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "routes_count": len(routes),
+                "last_modified": time.ctime(stat.st_mtime)
+            }
+            
+        except Exception as e:
+            api_logger.error(f"Error getting file info: {e}")
+            return {"error": str(e)}
+
     def __del__(self):
         """Cleanup file watcher on destruction."""
         self.stop_watching()

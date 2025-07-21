@@ -27,8 +27,8 @@ services:
       - ./logs:/var/log/docker-revp
       # Mount SSH private key file (for SSH_USER) for Docker host connections via SSH
       - /home/revp/.ssh/id_revp:/home/app/.ssh/docker_monitor_key:ro
-      # Mount static routes configuration (optional)
-      - ./static-routes.yml:/app/config/static-routes.yml
+      # Mount entire config directory for static routes CRUD operations
+      - ./config:/app/config
     restart: unless-stopped
 
     # Health check

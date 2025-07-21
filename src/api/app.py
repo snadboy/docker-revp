@@ -9,6 +9,7 @@ from ..logger import api_logger
 from .health import router as health_router
 from .containers import router as containers_router
 from .dashboard import router as dashboard_router
+from .static_routes import router as static_routes_router
 
 
 def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None, static_routes_manager=None):
@@ -33,6 +34,7 @@ def create_app(docker_monitor=None, caddy_manager=None, ssh_manager=None, static
     app.include_router(dashboard_router)  # Dashboard should be first for "/" route
     app.include_router(health_router)
     app.include_router(containers_router)
+    app.include_router(static_routes_router)
     
     @app.on_event("startup")
     async def startup_event():
