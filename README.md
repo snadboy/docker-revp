@@ -8,9 +8,12 @@ A Python-based Docker container that monitors Docker containers across multiple 
 - **Real-time container event monitoring** (start, stop, pause, unpause)
 - **Automatic Caddy reverse proxy configuration** via Admin API
 - **Static route configuration** via YAML for external services
+- **Static routes CRUD management** via web dashboard (add, edit, delete routes)
 - **FastAPI health check and metrics endpoints**
 - **AI-native MCP (Model Context Protocol) integration** for AI agent access
 - **Responsive web dashboard** with real-time container management
+- **Advanced table widgets** with sorting, resizing, and filtering
+- **WebSocket support** for real-time applications
 - **Comprehensive logging** with rotation
 - **Configurable reconciliation** for missed events
 - **SSH connection management** with automatic configuration
@@ -65,6 +68,39 @@ A Python-based Docker container that monitors Docker containers across multiple 
    # AI agent MCP endpoint
    curl http://localhost:8080/mcp
    ```
+
+## Web Dashboard
+
+The responsive web dashboard provides comprehensive container and static route management:
+
+### Dashboard Features
+
+- **Summary Tab**: Overview with total containers, hosts, and health status
+- **Containers Tab**: Real-time container monitoring with:
+  - Sortable columns (Name, Host, Status, Image, Domain, etc.)
+  - Resizable columns by dragging
+  - Expandable rows showing detailed container labels
+  - Filter by RevP containers and hosts
+  - Multi-service container support
+
+- **Static Routes Tab**: Full CRUD management for external services:
+  - **Add Routes**: Web form with validation for new static routes
+  - **Edit Routes**: Click to modify existing route configurations
+  - **Delete Routes**: One-click removal with confirmation
+  - **Sortable/Resizable**: Same advanced table features as containers
+  - **Real-time Updates**: Changes applied immediately to Caddy
+  - **File Status**: Shows YAML file health and last modified time
+
+- **Health Tab**: System component monitoring
+- **Version Tab**: Build information and changelog
+
+### Dashboard Screenshots
+
+Access the dashboard at `http://localhost:8080` to see:
+- Real-time container status updates
+- Interactive table management
+- Responsive design for mobile/desktop
+- Dark/light theme toggle
 
 ## AI Integration (MCP)
 
@@ -435,13 +471,31 @@ services:
 
 ### Static Routes Configuration
 
-For services that aren't running in Docker containers (legacy systems, external APIs, etc.), you can configure static routes using a YAML file.
+For services that aren't running in Docker containers (legacy systems, external APIs, etc.), you can configure static routes using either the **web dashboard** or **YAML file**.
+
+#### Method 1: Web Dashboard (Recommended)
+
+1. **Access the dashboard:** `http://localhost:8080`
+2. **Navigate to Static Routes tab**
+3. **Add routes:** Click "Add Static Route" button
+4. **Edit routes:** Click "Edit" button on any route
+5. **Delete routes:** Click "Delete" button with confirmation
+
+**Web Dashboard Features:**
+- Form validation with helpful error messages
+- Real-time updates to Caddy configuration
+- No file editing required
+- Automatic YAML file management
+- Sortable/resizable table interface
+
+#### Method 2: YAML File Configuration
 
 **Setup:**
 1. **Create static routes file:**
    ```bash
-   cp static-routes.yml.example static-routes.yml
-   # Edit static-routes.yml with your routes
+   mkdir -p config
+   cp static-routes.yml.example config/static-routes.yml
+   # Edit config/static-routes.yml with your routes
    ```
 
 2. **YAML Configuration Format:**
@@ -465,7 +519,8 @@ For services that aren't running in Docker containers (legacy systems, external 
 3. **Volume Mount (already configured in docker-compose.yml):**
    ```yaml
    volumes:
-     - ./static-routes.yml:/app/config/static-routes.yml:ro
+     # Mount entire config directory for CRUD operations
+     - ./config:/app/config
    ```
 
 **Static Route Properties:**
@@ -479,11 +534,13 @@ For services that aren't running in Docker containers (legacy systems, external 
 | `support_websocket` | No | `false` | Enable WebSocket support |
 
 **Features:**
+- **Web dashboard CRUD**: Add, edit, delete routes via user-friendly interface
 - **Automatic file watching**: Changes to static-routes.yml are detected and applied immediately
 - **Real-time updates**: Routes are updated in Caddy without container restart
 - **Same features**: Static routes support force-ssl, websocket, and all container label features
 - **Dashboard integration**: Static routes appear in the dashboard alongside containers  
-- **API access**: Available via `/containers/static-routes` and `/containers/all-services` endpoints
+- **API access**: Full REST API for programmatic management
+- **Form validation**: Prevents invalid configurations and domain conflicts
 
 ## API Endpoints
 
@@ -493,6 +550,53 @@ For services that aren't running in Docker containers (legacy systems, external 
 - `GET /health/version` - Version and build information
 - `GET /health/detailed` - Detailed component status
 - `GET /health/metrics` - Prometheus-compatible metrics
+
+### Containers & Routes
+
+- `GET /containers` - List all monitored containers
+- `GET /containers/static-routes` - List static routes only
+- `GET /containers/all-services` - Combined containers and static routes
+
+### Static Routes Management
+
+- `GET /api/static-routes` - List all static routes
+- `POST /api/static-routes` - Create a new static route
+- `PUT /api/static-routes/{domain}` - Update existing static route
+- `DELETE /api/static-routes/{domain}` - Delete static route
+- `GET /api/static-routes/info/file` - Get static routes file information
+
+#### Static Routes API Examples
+
+**Create a new route:**
+```bash
+curl -X POST http://localhost:8080/api/static-routes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "api.example.com",
+    "backend_url": "http://192.168.1.100:3000",
+    "backend_path": "/api/v1",
+    "force_ssl": true,
+    "support_websocket": false
+  }'
+```
+
+**Update existing route:**
+```bash
+curl -X PUT http://localhost:8080/api/static-routes/api.example.com \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "api.example.com",
+    "backend_url": "http://192.168.1.101:3000",
+    "backend_path": "/api/v2",
+    "force_ssl": true,
+    "support_websocket": true
+  }'
+```
+
+**Delete route:**
+```bash
+curl -X DELETE http://localhost:8080/api/static-routes/api.example.com
+```
 
 ### Example Health Check Response
 
@@ -667,6 +771,12 @@ The included `docker-compose.yml` provides:
    - Verify Caddy Admin API is accessible
    - Check Caddy configuration for conflicts
    - Review Caddy logs for route application errors
+
+4. **Static Routes Issues**
+   - Use web dashboard for easier management instead of manual YAML editing
+   - Check config directory permissions (should be writable)
+   - Verify static routes file syntax via `/api/static-routes/info/file`
+   - Look for domain conflicts in dashboard or API responses
 
 ### Debugging
 
