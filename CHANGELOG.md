@@ -1,3 +1,10 @@
+# [3.2.0](https://github.com/snadboy/docker-revp/compare/v3.1.0...v3.2.0) (2025-07-21)
+
+
+### Features
+
+* implement reusable SortableResizableTable widget for consistent table behavior ([8c4e627](https://github.com/snadboy/docker-revp/commit/8c4e627881800084ffd9b42a77908b70330bf4ab))
+
 # [3.1.0](https://github.com/snadboy/docker-revp/compare/v3.0.2...v3.1.0) (2025-07-20)
 
 
