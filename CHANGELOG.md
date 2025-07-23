@@ -1,3 +1,10 @@
+# [3.4.0](https://github.com/snadboy/docker-revp/compare/v3.3.0...v3.4.0) (2025-07-23)
+
+
+### Features
+
+* implement wildcard SSL certificate support with DNS-01 challenge ([672807c](https://github.com/snadboy/docker-revp/commit/672807cad2be49cdf8fd578b1f72a6c9c5e79c46))
+
 # [3.3.0](https://github.com/snadboy/docker-revp/compare/v3.2.0...v3.3.0) (2025-07-21)
 
 
