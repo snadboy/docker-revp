@@ -1,3 +1,11 @@
+# [3.5.0](https://github.com/snadboy/docker-revp/compare/v3.4.0...v3.5.0) (2025-07-23)
+
+
+### Features
+
+* enhance hosts dashboard with improved UX and remove legacy DOCKER_HOSTS support ([7f27432](https://github.com/snadboy/docker-revp/commit/7f27432721c800d9d1182527a345122cc8aa68d4))
+* implement hosts.yml configuration system with dashboard integration ([df6eed3](https://github.com/snadboy/docker-revp/commit/df6eed38420e242159cd1ac005f5f8a895472631))
+
 # [3.4.0](https://github.com/snadboy/docker-revp/compare/v3.3.0...v3.4.0) (2025-07-23)
 
 
