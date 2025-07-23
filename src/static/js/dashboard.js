@@ -348,6 +348,9 @@ class Dashboard {
             case 'static-routes':
                 await this.loadStaticRoutesData();
                 break;
+            case 'hosts':
+                await this.loadHostsData();
+                break;
             case 'health':
                 await this.loadHealthData();
                 break;
@@ -956,6 +959,118 @@ class Dashboard {
         document.querySelectorAll('.container-row.expanded').forEach(row => {
             row.classList.remove('expanded');
         });
+    }
+
+    // Hosts Tab
+    async loadHostsData() {
+        try {
+            const response = await fetch('/api/hosts/status');
+            if (!response.ok) {
+                console.warn('Hosts API not available:', response.status);
+                this.hostsData = {
+                    configuration_type: "unknown",
+                    hosts: [],
+                    total_hosts: 0,
+                    enabled_hosts: 0,
+                    connection_status: {}
+                };
+            } else {
+                this.hostsData = await response.json();
+            }
+            
+            this.updateHostsDisplay();
+            
+        } catch (error) {
+            console.error('Error loading hosts data:', error);
+            this.hostsData = {
+                configuration_type: "error",
+                hosts: [],
+                total_hosts: 0,
+                enabled_hosts: 0,
+                connection_status: {},
+                error: error.message
+            };
+            this.updateHostsDisplay();
+        }
+    }
+    
+    updateHostsDisplay() {
+        // Update summary info
+        const configTypeEl = document.getElementById('config-type');
+        const totalHostsEl = document.getElementById('total-hosts');
+        const enabledHostsEl = document.getElementById('enabled-hosts');
+        
+        if (configTypeEl) {
+            let displayText = this.hostsData.configuration_type;
+            if (displayText === 'hosts.yml') {
+                displayText = 'hosts.yml (recommended)';
+            } else if (displayText === 'DOCKER_HOSTS') {
+                displayText = 'DOCKER_HOSTS (legacy)';
+            }
+            configTypeEl.textContent = displayText;
+        }
+        
+        if (totalHostsEl) {
+            totalHostsEl.textContent = this.hostsData.total_hosts || 0;
+        }
+        
+        if (enabledHostsEl) {
+            enabledHostsEl.textContent = this.hostsData.enabled_hosts || 0;
+        }
+        
+        // Update hosts table
+        const tableBody = document.getElementById('hosts-table-body');
+        if (!tableBody) return;
+        
+        if (!this.hostsData.hosts || this.hostsData.hosts.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 2rem;">
+                        ${this.hostsData.error ? 
+                            `<span style="color: var(--danger-color);">Error: ${this.hostsData.error}</span>` :
+                            'No hosts configured'
+                        }
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        // Build table rows
+        const rows = this.hostsData.hosts.map(host => {
+            // Determine connection status
+            let statusBadge = '<span class="host-status disabled">Unknown</span>';
+            
+            if (!host.enabled) {
+                statusBadge = '<span class="host-status disabled">Disabled</span>';
+            } else {
+                const connectionInfo = this.hostsData.connection_status[host.hostname];
+                if (connectionInfo) {
+                    if (connectionInfo.connected) {
+                        statusBadge = '<span class="host-status connected">Connected</span>';
+                    } else {
+                        statusBadge = '<span class="host-status disconnected">Disconnected</span>';
+                    }
+                }
+            }
+            
+            // Mask sensitive key file paths
+            const keyFile = host.key_file ? host.key_file.replace(/\/[^\/]+$/, '/***') : 'Not specified';
+            
+            return `
+                <tr ${!host.enabled ? 'style="opacity: 0.6;"' : ''}>
+                    <td><strong>${host.alias}</strong></td>
+                    <td>${host.hostname}</td>
+                    <td>${host.user}</td>
+                    <td>${host.port}</td>
+                    <td>${statusBadge}</td>
+                    <td>${host.description || 'No description'}</td>
+                    <td><code style="font-size: 0.8em;">${keyFile}</code></td>
+                </tr>
+            `;
+        }).join('');
+        
+        tableBody.innerHTML = rows;
     }
 
     // Health Tab

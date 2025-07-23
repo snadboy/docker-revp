@@ -25,6 +25,7 @@
             <button class="tab-button active" data-tab="summary">Summary</button>
             <button class="tab-button" data-tab="containers">Containers</button>
             <button class="tab-button" data-tab="static-routes">Static Routes</button>
+            <button class="tab-button" data-tab="hosts">Hosts</button>
             <button class="tab-button" data-tab="health">Health</button>
             <button class="tab-button" data-tab="version">Version</button>
         </div>
@@ -194,6 +195,67 @@
                         <li><strong>Force SSL:</strong> Redirect HTTP requests to HTTPS</li>
                         <li><strong>WebSocket:</strong> Enable WebSocket support for the route</li>
                     </ul>
+                </div>
+            </div>
+
+            <!-- Hosts Tab -->
+            <div id="hosts-tab" class="tab-panel">
+                <div class="hosts-header">
+                    <h2>Hosts Configuration</h2>
+                </div>
+
+                <div class="hosts-info">
+                    <div class="info-card">
+                        <h3>Configuration Type</h3>
+                        <div class="info-value" id="config-type">Loading...</div>
+                    </div>
+                    <div class="info-card">
+                        <h3>Total Hosts</h3>
+                        <div class="info-value" id="total-hosts">0</div>
+                    </div>
+                    <div class="info-card">
+                        <h3>Enabled Hosts</h3>
+                        <div class="info-value" id="enabled-hosts">0</div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table id="hosts-table">
+                        <thead>
+                            <tr>
+                                <th>Alias</th>
+                                <th>Hostname</th>
+                                <th>User</th>
+                                <th>Port</th>
+                                <th>Status</th>
+                                <th>Description</th>
+                                <th>SSH Key</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hosts-table-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 2rem;">
+                                    <div class="loading"></div>
+                                    Loading hosts...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="hosts-help">
+                    <h3>About Hosts Configuration</h3>
+                    <p>
+                        RevP supports two methods for configuring Docker hosts:
+                    </p>
+                    <ul>
+                        <li><strong>hosts.yml</strong> - Modern, flexible configuration with per-host SSH settings</li>
+                        <li><strong>DOCKER_HOSTS</strong> - Legacy environment variable configuration</li>
+                    </ul>
+                    <p>
+                        The hosts.yml method is recommended for new deployments as it provides better flexibility,
+                        documentation, and per-host SSH configuration capabilities.
+                    </p>
                 </div>
             </div>
 

@@ -69,30 +69,78 @@ class SSHConfigManager:
     
     def _generate_ssh_config(self) -> None:
         """Generate SSH config file for Docker hosts."""
-        hosts = settings.parse_docker_hosts()
-        
-        if not hosts:
-            ssh_logger.warning("No Docker hosts configured")
+        # Try to use hosts.yml configuration first
+        if settings.has_hosts_config():
+            self._generate_ssh_config_from_hosts_yml()
+        else:
+            # Fall back to legacy DOCKER_HOSTS
+            self._generate_ssh_config_from_docker_hosts()
+    
+    def _generate_ssh_config_from_hosts_yml(self) -> None:
+        """Generate SSH config from hosts.yml configuration."""
+        hosts_config = settings.get_hosts_config()
+        if not hosts_config:
+            ssh_logger.warning("No hosts.yml configuration available")
             return
         
-        ssh_logger.info(f"Generating SSH config for {len(hosts)} hosts")
+        enabled_hosts = hosts_config.get_enabled_hosts()
+        if not enabled_hosts:
+            ssh_logger.warning("No enabled hosts found in hosts.yml")
+            return
+        
+        ssh_logger.info(f"Generating SSH config for {len(enabled_hosts)} hosts from hosts.yml")
         
         # Read existing config if it exists
-        existing_config = ""
-        if self.config_file.exists():
-            existing_config = self.config_file.read_text()
-            
-            # Remove our managed section if it exists
-            start_marker = "# BEGIN DOCKER MONITOR MANAGED HOSTS"
-            end_marker = "# END DOCKER MONITOR MANAGED HOSTS"
-            
-            if start_marker in existing_config and end_marker in existing_config:
-                start_idx = existing_config.index(start_marker)
-                end_idx = existing_config.index(end_marker) + len(end_marker)
-                existing_config = existing_config[:start_idx] + existing_config[end_idx + 1:]
+        existing_config = self._read_existing_config()
         
         # Generate new config section
         config_lines = ["# BEGIN DOCKER MONITOR MANAGED HOSTS"]
+        config_lines.append("# Generated from hosts.yml configuration")
+        
+        for alias, host_config in enabled_hosts.items():
+            # Create SSH alias similar to legacy format for compatibility
+            ssh_alias = f"docker-{host_config.hostname.replace('.', '-').replace(':', '-')}-{host_config.port}"
+            
+            config_lines.extend([
+                f"Host {ssh_alias}",
+                f"    HostName {host_config.hostname}",
+                f"    User {host_config.user}",
+                f"    Port {host_config.port}",
+                f"    IdentityFile {host_config.key_file}",
+                "    PasswordAuthentication no",
+                "    StrictHostKeyChecking accept-new",
+                "    ServerAliveInterval 60",
+                "    ServerAliveCountMax 3",
+                "    ControlMaster auto",
+                "    ControlPath ~/.ssh/control-%r@%h:%p",
+                "    ControlPersist 10m",
+                f"    # {host_config.description}",
+                ""
+            ])
+        
+        config_lines.append("# END DOCKER MONITOR MANAGED HOSTS")
+        
+        # Write the final config
+        self._write_ssh_config(existing_config, config_lines)
+        
+        ssh_logger.info(f"SSH config written successfully with {len(enabled_hosts)} hosts from hosts.yml")
+    
+    def _generate_ssh_config_from_docker_hosts(self) -> None:
+        """Generate SSH config from legacy DOCKER_HOSTS environment variable."""
+        hosts = settings.parse_docker_hosts()
+        
+        if not hosts:
+            ssh_logger.warning("No Docker hosts configured in DOCKER_HOSTS")
+            return
+        
+        ssh_logger.info(f"Generating SSH config for {len(hosts)} hosts from DOCKER_HOSTS")
+        
+        # Read existing config if it exists
+        existing_config = self._read_existing_config()
+        
+        # Generate new config section
+        config_lines = ["# BEGIN DOCKER MONITOR MANAGED HOSTS"]
+        config_lines.append("# Generated from DOCKER_HOSTS environment variable")
         
         for alias, host, port in hosts:
             config_lines.extend([
@@ -113,6 +161,30 @@ class SSHConfigManager:
         
         config_lines.append("# END DOCKER MONITOR MANAGED HOSTS")
         
+        # Write the final config
+        self._write_ssh_config(existing_config, config_lines)
+        
+        ssh_logger.info(f"SSH config written successfully with {len(hosts)} hosts from DOCKER_HOSTS")
+    
+    def _read_existing_config(self) -> str:
+        """Read existing SSH config and remove our managed section."""
+        existing_config = ""
+        if self.config_file.exists():
+            existing_config = self.config_file.read_text()
+            
+            # Remove our managed section if it exists
+            start_marker = "# BEGIN DOCKER MONITOR MANAGED HOSTS"
+            end_marker = "# END DOCKER MONITOR MANAGED HOSTS"
+            
+            if start_marker in existing_config and end_marker in existing_config:
+                start_idx = existing_config.index(start_marker)
+                end_idx = existing_config.index(end_marker) + len(end_marker)
+                existing_config = existing_config[:start_idx] + existing_config[end_idx + 1:]
+        
+        return existing_config
+    
+    def _write_ssh_config(self, existing_config: str, config_lines: list) -> None:
+        """Write SSH config with existing config and new managed section."""
         # Combine with existing config
         new_config = existing_config.rstrip() + "\n\n" + "\n".join(config_lines) + "\n"
         
@@ -121,12 +193,10 @@ class SSHConfigManager:
         
         # Set permissions (644)
         os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-        
-        ssh_logger.info(f"SSH config written successfully with {len(hosts)} hosts")
     
     def get_docker_hosts(self) -> List[Tuple[str, str, int]]:
         """Get list of configured Docker hosts."""
-        return settings.parse_docker_hosts()
+        return settings.get_docker_hosts()
     
     def test_connections(self) -> dict:
         """Test SSH connections to all configured hosts."""

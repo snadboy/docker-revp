@@ -1,9 +1,11 @@
 """Configuration management for Docker Reverse Proxy."""
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+from .hosts_config import HostsConfig, load_hosts_config
 
 
 class Settings(BaseSettings):
@@ -31,6 +33,9 @@ class Settings(BaseSettings):
     
     # Static routes configuration
     static_routes_file: str = "/app/config/static-routes.yml"
+    
+    # Hosts configuration
+    hosts_config_file: str = "/app/config/hosts.yml"
     
     @field_validator('api_bind')
     def validate_api_bind(cls, v):
@@ -63,6 +68,7 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._load_version_info()
+        self._hosts_config: Optional[HostsConfig] = None
     
     def _load_version_info(self) -> None:
         """Load version information from environment or VERSION file."""
@@ -79,6 +85,36 @@ class Settings(BaseSettings):
                     self.app_version = version_file.read_text().strip()
             except Exception:
                 pass
+    
+    def load_hosts_config(self) -> HostsConfig:
+        """Load hosts configuration from hosts.yml file."""
+        if self._hosts_config is not None:
+            return self._hosts_config
+        
+        hosts_file = Path(self.hosts_config_file)
+        
+        try:
+            self._hosts_config = load_hosts_config(hosts_file)
+            return self._hosts_config
+        except Exception as e:
+            # Log warning but don't fail - fall back to DOCKER_HOSTS
+            from .logger import api_logger
+            api_logger.warning(f"Could not load hosts.yml configuration: {e}")
+            api_logger.info("Falling back to DOCKER_HOSTS environment variable")
+            return None
+    
+    def get_hosts_config(self) -> Optional[HostsConfig]:
+        """Get cached hosts configuration."""
+        return self._hosts_config
+    
+    def has_hosts_config(self) -> bool:
+        """Check if hosts.yml configuration is available and loaded."""
+        if self._hosts_config is not None:
+            return True
+        
+        # Try to load it
+        config = self.load_hosts_config()
+        return config is not None
     
     def parse_docker_hosts(self) -> List[Tuple[str, str, int]]:
         """Parse DOCKER_HOSTS into list of (alias, host, port) tuples."""
@@ -120,24 +156,59 @@ class Settings(BaseSettings):
         
         return hosts
     
+    def get_docker_hosts(self) -> List[Tuple[str, str, int]]:
+        """Get Docker hosts from either hosts.yml or DOCKER_HOSTS environment variable.
+        
+        Returns list of (alias, hostname, port) tuples.
+        Prioritizes hosts.yml if available, falls back to DOCKER_HOSTS.
+        """
+        # Try to use hosts.yml first
+        if self.has_hosts_config():
+            hosts_config = self.get_hosts_config()
+            if hosts_config:
+                return hosts_config.to_docker_hosts_format()
+        
+        # Fall back to legacy DOCKER_HOSTS
+        return self.parse_docker_hosts()
+    
     def validate(self) -> None:
         """Validate required settings."""
         errors = []
         
-        if not self.docker_hosts:
-            errors.append("DOCKER_HOSTS environment variable is required")
-        else:
-            # Validate DOCKER_HOSTS format by attempting to parse it
+        # Check for either hosts.yml or DOCKER_HOSTS configuration
+        has_hosts_yml = self.has_hosts_config()
+        has_docker_hosts = bool(self.docker_hosts)
+        
+        if not has_hosts_yml and not has_docker_hosts:
+            errors.append("Either hosts.yml configuration file or DOCKER_HOSTS environment variable is required")
+        
+        # Validate hosts.yml if present
+        if has_hosts_yml:
             try:
-                self.parse_docker_hosts()
+                hosts_config = self.get_hosts_config()
+                if not hosts_config or not hosts_config.get_enabled_hosts():
+                    errors.append("No enabled hosts found in hosts.yml configuration")
+            except Exception as e:
+                errors.append(f"hosts.yml validation failed: {e}")
+        
+        # Validate DOCKER_HOSTS if present (and hosts.yml not available)
+        elif has_docker_hosts:
+            try:
+                docker_hosts = self.parse_docker_hosts()
+                if not docker_hosts:
+                    errors.append("No valid hosts found in DOCKER_HOSTS")
             except ValueError as e:
                 errors.append(f"DOCKER_HOSTS validation failed: {e}")
+            
+            # For legacy DOCKER_HOSTS, we still need SSH_USER
+            if not self.ssh_user:
+                errors.append("SSH_USER environment variable is required when using DOCKER_HOSTS")
+            
+            # Check SSH key for legacy configuration
+            if not Path(self.ssh_private_key_path).exists():
+                errors.append(f"SSH private key file not found at {self.ssh_private_key_path}")
         
-        if not self.ssh_user:
-            errors.append("SSH_USER environment variable is required")
-        
-        if not Path(self.ssh_private_key_path).exists():
-            errors.append(f"SSH private key file not found at {self.ssh_private_key_path}")
+        # For hosts.yml configuration, SSH settings are per-host, so we don't validate global SSH settings
         
         if errors:
             raise ValueError("Configuration errors:\n" + "\n".join(errors))

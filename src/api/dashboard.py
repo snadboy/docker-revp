@@ -359,3 +359,82 @@ async def get_certificate_status(request: Request) -> Dict[str, Any]:
             "provider": "Cloudflare",
             "error": str(e)
         }
+
+
+@router.get("/api/hosts/status")
+async def get_hosts_status(request: Request) -> Dict[str, Any]:
+    """Get hosts configuration and connection status."""
+    api_logger.info("Hosts status requested")
+    
+    try:
+        hosts_info = {
+            "configuration_type": "unknown",
+            "hosts": [],
+            "total_hosts": 0,
+            "enabled_hosts": 0,
+            "connection_status": {}
+        }
+        
+        # Check which configuration method is being used
+        if settings.has_hosts_config():
+            hosts_config = settings.get_hosts_config()
+            if hosts_config:
+                hosts_info["configuration_type"] = "hosts.yml"
+                enabled_hosts = hosts_config.get_enabled_hosts()
+                
+                # Build hosts information
+                for alias, host_config in hosts_config.hosts.items():
+                    host_info = {
+                        "alias": alias,
+                        "hostname": host_config.hostname,
+                        "user": host_config.user,
+                        "port": host_config.port,
+                        "description": host_config.description,
+                        "enabled": host_config.enabled,
+                        "key_file": host_config.key_file  # May want to mask this in production
+                    }
+                    hosts_info["hosts"].append(host_info)
+                
+                hosts_info["total_hosts"] = len(hosts_config.hosts)
+                hosts_info["enabled_hosts"] = len(enabled_hosts)
+        else:
+            hosts_info["configuration_type"] = "DOCKER_HOSTS"
+            docker_hosts = settings.parse_docker_hosts()
+            
+            # Build hosts information from DOCKER_HOSTS
+            for alias, hostname, port in docker_hosts:
+                host_info = {
+                    "alias": alias,
+                    "hostname": hostname,
+                    "user": settings.ssh_user,
+                    "port": port,
+                    "description": f"Legacy host from DOCKER_HOSTS",
+                    "enabled": True,
+                    "key_file": settings.ssh_private_key_path
+                }
+                hosts_info["hosts"].append(host_info)
+            
+            hosts_info["total_hosts"] = len(docker_hosts)
+            hosts_info["enabled_hosts"] = len(docker_hosts)
+        
+        # Get connection status if SSH manager is available
+        if request.app.state.ssh_manager:
+            try:
+                connection_results = request.app.state.ssh_manager.test_connections()
+                hosts_info["connection_status"] = connection_results
+            except Exception as e:
+                api_logger.warning(f"Could not test SSH connections: {e}")
+                hosts_info["connection_status"] = {}
+        
+        return hosts_info
+        
+    except Exception as e:
+        api_logger.error(f"Error getting hosts status: {e}")
+        return {
+            "configuration_type": "error",
+            "hosts": [],
+            "total_hosts": 0,
+            "enabled_hosts": 0,
+            "connection_status": {},
+            "error": str(e)
+        }
