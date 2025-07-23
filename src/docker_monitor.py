@@ -1,11 +1,12 @@
 """Docker container monitoring and event handling."""
 import asyncio
 import json
-import subprocess
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 
+from .ssh_docker_client import SSHDockerClient
+from .ssh_docker_client.exceptions import SSHDockerError
 from .config import settings
 from .logger import docker_logger
 
@@ -189,6 +190,19 @@ class DockerMonitor:
         self.executor = ThreadPoolExecutor(max_workers=len(self.hosts_config) or 1)
         self._running = False
         self._tasks: List[asyncio.Task] = []
+        
+        # Initialize SSH Docker Client
+        self.ssh_client = SSHDockerClient.from_config(settings.hosts_config_file)
+        
+        # Create hostname to alias mapping for backward compatibility
+        self._hostname_to_alias = {}
+        enabled_hosts = self.ssh_client.hosts_config.get_enabled_hosts()
+        for alias, host_config in enabled_hosts.items():
+            self._hostname_to_alias[host_config.hostname] = alias
+    
+    def _get_alias_for_hostname(self, hostname: str) -> str:
+        """Get SSH client alias for a hostname."""
+        return self._hostname_to_alias.get(hostname, hostname)
     
     async def start(self) -> None:
         """Start monitoring all configured Docker hosts."""
@@ -236,34 +250,22 @@ class DockerMonitor:
                 # Get host IP address
                 host_ip = await self._get_host_ip(alias, host)
                 
-                # Start docker events command
-                cmd = [
-                    "docker", "-H", f"ssh://{alias}",
-                    "events",
-                    "--filter", "type=container",
-                    "--format", "{{json .}}"
-                ]
-                
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
+                # Start docker events stream using ssh-docker-client
                 docker_logger.info(f"Connected to Docker events on {host}:{port}")
                 
-                # Read events
-                async for line in process.stdout:
-                    if not self._running:
-                        break
-                    
-                    try:
-                        event = json.loads(line.decode().strip())
-                        await self._handle_event(alias, host, host_ip, event)
-                    except json.JSONDecodeError as e:
-                        docker_logger.error(f"Failed to parse event from {host}: {e}")
-                    except Exception as e:
-                        docker_logger.error(f"Error handling event from {host}: {e}")
+                # Read events using the ssh client with alias
+                try:
+                    async for event in self.ssh_client.docker_events(alias, filters={"type": "container"}):
+                        if not self._running:
+                            break
+                        
+                        try:
+                            await self._handle_event(alias, host, host_ip, event)
+                        except Exception as e:
+                            docker_logger.error(f"Error handling event from {host}: {e}")
+                except SSHDockerError as e:
+                    docker_logger.error(f"SSH Docker error for {host}: {e}")
+                    raise
                 
                 # Check if process ended unexpectedly
                 if self._running:
@@ -413,33 +415,16 @@ class DockerMonitor:
     async def _get_container_info(self, alias: str, container_id: str) -> Optional[dict]:
         """Get detailed container information."""
         try:
-            cmd = [
-                "docker", "-H", f"ssh://{alias}",
-                "inspect", container_id
-            ]
-            
             docker_logger.debug(f"Running docker inspect for {container_id} with alias {alias}")
-            result = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            container_info = await self.ssh_client.inspect_container(alias, container_id)
             
-            stdout, stderr = await result.communicate()
-            
-            if result.returncode != 0:
-                docker_logger.error(f"Failed to inspect container {container_id}: {stderr.decode()}")
-                return None
-            
-            containers = json.loads(stdout.decode())
-            container_info = containers[0] if containers else None
             if container_info:
                 docker_logger.debug(f"Successfully got container info for {container_id}")
             else:
                 docker_logger.warning(f"No container info returned for {container_id}")
             return container_info
             
-        except Exception as e:
+        except SSHDockerError as e:
             docker_logger.error(f"Error getting container info for {container_id}: {e}")
             return None
     
@@ -558,22 +543,23 @@ class DockerMonitor:
                 host_ip = await self._get_host_ip(alias, host)
                 docker_logger.debug(f"Host IP for {host}: {host_ip}")
                 
-                # Get all containers
-                docker_logger.debug(f"About to call list_containers_sync for {host}")
-                containers = self.list_containers_sync(host)
+                # Get all containers using alias
+                host_alias = self._get_alias_for_hostname(host)
+                docker_logger.debug(f"About to call list_containers for {host} (alias: {host_alias})")
+                containers = await self.ssh_client.list_containers(host=host_alias, all_containers=True)
                 docker_logger.info(f"Found {len(containers)} total containers from force route creation")
                 
                 for container_data in containers:
-                    # Parse labels properly (same logic as API)
-                    labels_str = container_data.get("Labels", "")
-                    if labels_str:
-                        labels = {}
-                        for label in labels_str.split(','):
+                    # Get labels from container data (ssh-docker-client returns them as a dict)
+                    labels = container_data.get("Labels", {})
+                    if isinstance(labels, str):
+                        # Handle string format if needed
+                        parsed_labels = {}
+                        for label in labels.split(','):
                             if '=' in label:
                                 key, value = label.split('=', 1)
-                                labels[key] = value
-                    else:
-                        labels = {}
+                                parsed_labels[key] = value
+                        labels = parsed_labels
                     
                     # Check for revp labels
                     revp_labels = {k: v for k, v in labels.items() if k.startswith("snadboy.revp.")}
@@ -604,35 +590,13 @@ class DockerMonitor:
             docker_logger.info(f"Reconciling host {host} with alias {alias}")
             host_ip = await self._get_host_ip(alias, host)
             
-            # List running containers
-            cmd = [
-                "docker", "-H", f"ssh://{alias}",
-                "ps", "--format", "{{json .}}"
-            ]
-            
-            result = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await result.communicate()
-            
-            if result.returncode != 0:
-                docker_logger.error(f"Failed to list containers on {host}: {stderr.decode()}")
-                return
-            
-            # Process each container
-            containers_found = stdout.decode().strip().split('\n')
-            docker_logger.info(f"Found {len([l for l in containers_found if l])} containers on {host}")
-            
-            for line in containers_found:
-                if not line:
-                    continue
+            # List running containers using ssh-docker-client
+            try:
+                containers_found = await self.ssh_client.list_containers(host=alias)
+                docker_logger.info(f"Found {len(containers_found)} containers on {host}")
                 
-                try:
-                    container_summary = json.loads(line)
-                    container_id = container_summary.get("ID", "")
+                for container_data in containers_found:
+                    container_id = container_data.get("ID", "")
                     
                     if not container_id:
                         continue
@@ -648,8 +612,8 @@ class DockerMonitor:
                         # Update last seen time
                         self.containers[container_id].last_seen = datetime.utcnow()
                         
-                except Exception as e:
-                    docker_logger.error(f"Error processing container: {e}")
+            except SSHDockerError as e:
+                docker_logger.error(f"Error listing containers on {host}: {e}")
                     
         except Exception as e:
             docker_logger.error(f"Error reconciling host {host}: {e}")
@@ -684,70 +648,22 @@ class DockerMonitor:
         """List containers on a specific host (synchronous)."""
         try:
             docker_logger.info(f"Looking for containers on {hostname}")
-            # Find the host config
-            alias = None
-            for a, h, p in self.hosts_config:
-                if h == hostname:
-                    alias = a
-                    break
-            
-            if not alias:
-                docker_logger.warning(f"No alias found for hostname {hostname}")
-                return []
-            
-            # Run docker ps command synchronously
-            import subprocess
-            result = subprocess.run([
-                "docker", "-H", f"ssh://{alias}",
-                "ps", "--format", "{{json .}}"
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode != 0:
-                docker_logger.error(f"Failed to list containers on {hostname}: {result.stderr}")
-                return []
-            
-            containers = []
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    try:
-                        containers.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        docker_logger.error(f"Error parsing container JSON: {e} - Line: {line[:100]}")
-            
-            docker_logger.info(f"Successfully parsed {len(containers)} containers from {hostname}")
+            host_alias = self._get_alias_for_hostname(hostname)
+            containers = self.ssh_client.list_containers_sync(host=host_alias)
+            docker_logger.info(f"Successfully retrieved {len(containers)} containers from {hostname}")
             return containers
             
-        except Exception as e:
+        except SSHDockerError as e:
             docker_logger.error(f"Error listing containers on {hostname}: {e}")
             return []
     
     def inspect_container_sync(self, hostname: str, container_id: str) -> dict:
         """Inspect a specific container (synchronous)."""
         try:
-            # Find the host config
-            alias = None
-            for a, h, p in self.hosts_config:
-                if h == hostname:
-                    alias = a
-                    break
+            host_alias = self._get_alias_for_hostname(hostname)
+            container_info = self.ssh_client.inspect_container_sync(host_alias, container_id)
+            return container_info or {}
             
-            if not alias:
-                return {}
-            
-            # Run docker inspect command synchronously
-            import subprocess
-            result = subprocess.run([
-                "docker", "-H", f"ssh://{alias}",
-                "inspect", container_id
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode != 0:
-                docker_logger.error(f"Failed to inspect container {container_id} on {hostname}: {result.stderr}")
-                return {}
-            
-            data = json.loads(result.stdout)
-            return data[0] if data else {}
-            
-        except Exception as e:
+        except SSHDockerError as e:
             docker_logger.error(f"Error inspecting container {container_id} on {hostname}: {e}")
             return {}

@@ -8,3 +8,4 @@ pydantic-settings
 jinja2
 pyyaml
 watchdog
+# ssh-docker-client embedded in src/ directory until published to PyPI
