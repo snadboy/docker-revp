@@ -383,6 +383,9 @@ class Dashboard {
             }
             
             this.updateSummaryDisplay();
+            
+            // Load certificate data
+            await this.loadCertificateData();
         } catch (error) {
             console.error('Error loading summary data:', error);
             this.summaryData = this.getDefaultSummaryData();
@@ -440,6 +443,74 @@ class Dashboard {
                     `;
                     hostsList.appendChild(hostCard);
                 });
+            }
+        }
+    }
+
+    // Certificate Status
+    async loadCertificateData() {
+        try {
+            const response = await fetch('/api/certificate/status');
+            if (!response.ok) {
+                console.warn('Certificate API not available:', response.status);
+                return;
+            }
+            
+            const certData = await response.json();
+            this.updateCertificateDisplay(certData);
+        } catch (error) {
+            console.error('Error loading certificate data:', error);
+        }
+    }
+    
+    updateCertificateDisplay(data) {
+        // Update domain
+        const certDomainEl = document.getElementById('cert-domain');
+        if (certDomainEl) {
+            certDomainEl.textContent = data.domain || '*.snadboy.com';
+        }
+        
+        // Update issuer
+        const certIssuerEl = document.getElementById('cert-issuer');
+        if (certIssuerEl) {
+            certIssuerEl.textContent = data.issuer || 'Unknown';
+        }
+        
+        // Update expiry date
+        const certExpiryEl = document.getElementById('cert-expiry');
+        if (certExpiryEl) {
+            if (data.expiry_date) {
+                const expiryDate = new Date(data.expiry_date);
+                const formattedDate = expiryDate.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+                
+                let displayText = formattedDate;
+                if (data.days_until_expiry !== null) {
+                    displayText += ` (${data.days_until_expiry} days)`;
+                }
+                
+                certExpiryEl.textContent = displayText;
+            } else {
+                certExpiryEl.textContent = 'Unknown';
+            }
+        }
+        
+        // Update status
+        const certStatusEl = document.getElementById('cert-status');
+        if (certStatusEl) {
+            certStatusEl.textContent = data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : 'Unknown';
+            
+            // Update status class
+            certStatusEl.className = 'cert-status';
+            if (data.status === 'valid') {
+                certStatusEl.classList.add('valid');
+            } else if (data.status === 'expiring') {
+                certStatusEl.classList.add('expiring');
+            } else if (data.status === 'expired' || data.status === 'error' || data.status === 'missing') {
+                certStatusEl.classList.add('expired');
             }
         }
     }

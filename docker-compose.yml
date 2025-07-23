@@ -39,10 +39,11 @@ services:
       retries: 3
       start_period: 30s
   caddy:
-    image: caddy:2-alpine
+    build: ./caddy
     container_name: caddy
     environment:
       - CADDY_ADMIN=0.0.0.0:2019 # Allow external access to admin API
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     labels:
       # Caddy admin HTTP access
       - "snadboy.revp.80.domain=caddy.snadboy.com"

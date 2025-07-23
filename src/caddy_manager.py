@@ -179,6 +179,9 @@ class CaddyManager:
                 return
             
             routes = routes_response.json()
+            if routes is None:
+                caddy_logger.info("No routes to clean up")
+                return
             
             # Find all static routes (both current and stale)
             static_route_indices = []
@@ -396,6 +399,23 @@ class CaddyManager:
         # First, remove any existing routes with the same ID to prevent duplicates
         await self._remove_route_by_id(route_id)
         
+        # Check if routes array exists, if not initialize it
+        routes_response = await self.client.get(
+            f"{self.api_url}/config/apps/http/servers/srv0/routes"
+        )
+        
+        if routes_response.status_code == 200 and routes_response.json() is None:
+            # Initialize empty routes array if it doesn't exist
+            init_response = await self.client.put(
+                f"{self.api_url}/config/apps/http/servers/srv0/routes",
+                json=[],
+                headers={"Content-Type": "application/json"}
+            )
+            if init_response.status_code not in [200, 201]:
+                raise Exception(
+                    f"Failed to initialize routes array: {init_response.status_code} - {init_response.text}"
+                )
+        
         # Add the new route to the routes array
         response = await self.client.post(
             f"{self.api_url}/config/apps/http/servers/srv0/routes",
@@ -455,6 +475,8 @@ class CaddyManager:
                 return False
             
             routes = routes_response.json()
+            if routes is None:
+                return False
             
             # Check if any route has this ID
             for route in routes:
@@ -479,6 +501,8 @@ class CaddyManager:
                 return  # No routes to remove
             
             routes = routes_response.json()
+            if routes is None:
+                return  # No routes to remove
             
             # Find and remove all routes with this ID (in case of duplicates)
             removed_count = 0
@@ -526,6 +550,9 @@ class CaddyManager:
                 return
             
             routes = routes_response.json()
+            if routes is None:
+                caddy_logger.info("No routes to clean up on startup")
+                return
             
             # If no docker_monitor provided, skip cleanup to be safe
             if not docker_monitor:

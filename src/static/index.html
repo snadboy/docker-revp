@@ -65,6 +65,37 @@
                     </div>
                 </div>
 
+                <div class="certificate-section">
+                    <h2>SSL Certificate Status</h2>
+                    <div class="certificate-info">
+                        <div class="cert-card">
+                            <h3>🔒 Wildcard Certificate</h3>
+                            <div class="cert-details">
+                                <div class="cert-item">
+                                    <span class="cert-label">Domain:</span>
+                                    <span class="cert-value" id="cert-domain">*.snadboy.com</span>
+                                </div>
+                                <div class="cert-item">
+                                    <span class="cert-label">Issuer:</span>
+                                    <span class="cert-value" id="cert-issuer">Let's Encrypt</span>
+                                </div>
+                                <div class="cert-item">
+                                    <span class="cert-label">Valid Until:</span>
+                                    <span class="cert-value" id="cert-expiry">Loading...</span>
+                                </div>
+                                <div class="cert-item">
+                                    <span class="cert-label">Status:</span>
+                                    <span class="cert-status valid" id="cert-status">Valid</span>
+                                </div>
+                                <div class="cert-item">
+                                    <span class="cert-label">Challenge Type:</span>
+                                    <span class="cert-value">DNS-01 (Cloudflare)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="hosts-section">
                     <h2>Monitored Hosts</h2>
                     <div id="hosts-list" class="hosts-grid">
