@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, field_validator, ValidationError
 
-from .logger import api_logger
+# Note: Avoiding logger import here to prevent circular imports
+# Will log from config.py instead
 
 
 class HostConfig(BaseModel):
@@ -231,23 +232,33 @@ def load_hosts_config(config_file: Path) -> HostsConfig:
         if 'hosts' not in data:
             raise ValueError("Hosts configuration must contain 'hosts' section")
         
+        # Apply defaults to each host entry before validation
+        defaults = data.get('defaults', {})
+        if defaults:
+            for host_alias, host_config in data['hosts'].items():
+                # Apply defaults for missing fields
+                for key, value in defaults.items():
+                    if key not in host_config:
+                        host_config[key] = value
+        
         # Create and validate configuration
         hosts_config = HostsConfig(**data)
         
-        api_logger.info(f"Loaded {len(hosts_config.hosts)} hosts from {config_file}")
+        # Note: Using print instead of logger to avoid circular imports
+        print(f"INFO: Loaded {len(hosts_config.hosts)} hosts from {config_file}")
         return hosts_config
         
     except FileNotFoundError as e:
-        api_logger.error(f"Hosts configuration file not found: {e}")
+        print(f"ERROR: Hosts configuration file not found: {e}")
         raise
     except yaml.YAMLError as e:
-        api_logger.error(f"Invalid YAML in hosts configuration: {e}")
+        print(f"ERROR: Invalid YAML in hosts configuration: {e}")
         raise ValueError(f"Invalid YAML format in hosts configuration: {e}")
     except ValidationError as e:
-        api_logger.error(f"Invalid hosts configuration: {e}")
+        print(f"ERROR: Invalid hosts configuration: {e}")
         raise ValueError(f"Invalid hosts configuration: {e}")
     except Exception as e:
-        api_logger.error(f"Error loading hosts configuration: {e}")
+        print(f"ERROR: Error loading hosts configuration: {e}")
         raise
 
 
@@ -257,5 +268,5 @@ def validate_hosts_config(config_file: Path) -> bool:
         load_hosts_config(config_file)
         return True
     except Exception as e:
-        api_logger.error(f"Hosts configuration validation failed: {e}")
+        print(f"ERROR: Hosts configuration validation failed: {e}")
         return False

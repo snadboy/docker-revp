@@ -206,10 +206,6 @@
 
                 <div class="hosts-info">
                     <div class="info-card">
-                        <h3>Configuration Type</h3>
-                        <div class="info-value" id="config-type">Loading...</div>
-                    </div>
-                    <div class="info-card">
                         <h3>Total Hosts</h3>
                         <div class="info-value" id="total-hosts">0</div>
                     </div>
@@ -217,18 +213,22 @@
                         <h3>Enabled Hosts</h3>
                         <div class="info-value" id="enabled-hosts">0</div>
                     </div>
+                    <div class="info-card">
+                        <h3>Connected</h3>
+                        <div class="info-value" id="connected-hosts">0</div>
+                    </div>
                 </div>
 
                 <div class="table-container">
                     <table id="hosts-table">
                         <thead>
                             <tr>
-                                <th>Alias</th>
-                                <th>Hostname</th>
-                                <th>User</th>
-                                <th>Port</th>
-                                <th>Status</th>
-                                <th>Description</th>
+                                <th class="sortable" data-sort="alias">Alias</th>
+                                <th class="sortable" data-sort="hostname">Hostname</th>
+                                <th class="sortable" data-sort="user">User</th>
+                                <th class="sortable" data-sort="port">Port</th>
+                                <th class="sortable" data-sort="status">Status</th>
+                                <th class="sortable" data-sort="description">Description</th>
                                 <th>SSH Key</th>
                             </tr>
                         </thead>
@@ -246,15 +246,11 @@
                 <div class="hosts-help">
                     <h3>About Hosts Configuration</h3>
                     <p>
-                        RevP supports two methods for configuring Docker hosts:
+                        RevP uses the <strong>hosts.yml</strong> configuration file to manage Docker hosts with flexible per-host SSH settings.
                     </p>
-                    <ul>
-                        <li><strong>hosts.yml</strong> - Modern, flexible configuration with per-host SSH settings</li>
-                        <li><strong>DOCKER_HOSTS</strong> - Legacy environment variable configuration</li>
-                    </ul>
                     <p>
-                        The hosts.yml method is recommended for new deployments as it provides better flexibility,
-                        documentation, and per-host SSH configuration capabilities.
+                        Each host can have its own SSH configuration including user, port, and SSH key file. 
+                        Hosts can be enabled or disabled individually, and RevP monitors their connection status in real-time.
                     </p>
                 </div>
             </div>

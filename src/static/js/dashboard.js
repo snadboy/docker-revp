@@ -234,6 +234,11 @@ class Dashboard {
         // Table widgets
         this.containersTable = null;
         this.staticRoutesTable = null;
+        this.hostsTable = null;
+        
+        // Hosts sorting state
+        this.hostsSortColumn = null;
+        this.hostsSortDirection = 'asc';
         
         this.init();
     }
@@ -980,6 +985,18 @@ class Dashboard {
             
             this.updateHostsDisplay();
             
+            // Initialize table widget
+            if (!this.hostsTable) {
+                this.hostsTable = new SortableResizableTable('#hosts-table', {
+                    hasExpandColumn: false,
+                    sortCallback: (sortKey, sortDirection) => {
+                        this.hostsSortColumn = sortKey;
+                        this.hostsSortDirection = sortDirection;
+                        this.updateHostsDisplay();
+                    }
+                });
+            }
+            
         } catch (error) {
             console.error('Error loading hosts data:', error);
             this.hostsData = {
@@ -996,19 +1013,9 @@ class Dashboard {
     
     updateHostsDisplay() {
         // Update summary info
-        const configTypeEl = document.getElementById('config-type');
         const totalHostsEl = document.getElementById('total-hosts');
         const enabledHostsEl = document.getElementById('enabled-hosts');
-        
-        if (configTypeEl) {
-            let displayText = this.hostsData.configuration_type;
-            if (displayText === 'hosts.yml') {
-                displayText = 'hosts.yml (recommended)';
-            } else if (displayText === 'DOCKER_HOSTS') {
-                displayText = 'DOCKER_HOSTS (legacy)';
-            }
-            configTypeEl.textContent = displayText;
-        }
+        const connectedHostsEl = document.getElementById('connected-hosts');
         
         if (totalHostsEl) {
             totalHostsEl.textContent = this.hostsData.total_hosts || 0;
@@ -1016,6 +1023,16 @@ class Dashboard {
         
         if (enabledHostsEl) {
             enabledHostsEl.textContent = this.hostsData.enabled_hosts || 0;
+        }
+        
+        // Count connected hosts
+        if (connectedHostsEl && this.hostsData.hosts) {
+            const connectedCount = this.hostsData.hosts.filter(host => {
+                if (!host.enabled) return false;
+                const connInfo = this.hostsData.connection_status[host.hostname];
+                return connInfo && connInfo.connected;
+            }).length;
+            connectedHostsEl.textContent = connectedCount;
         }
         
         // Update hosts table
@@ -1036,8 +1053,14 @@ class Dashboard {
             return;
         }
         
+        // Sort hosts if needed
+        let sortedHosts = [...this.hostsData.hosts];
+        if (this.hostsSortColumn) {
+            sortedHosts = this.sortHosts(sortedHosts);
+        }
+        
         // Build table rows
-        const rows = this.hostsData.hosts.map(host => {
+        const rows = sortedHosts.map(host => {
             // Determine connection status
             let statusBadge = '<span class="host-status disabled">Unknown</span>';
             
@@ -1054,8 +1077,8 @@ class Dashboard {
                 }
             }
             
-            // Mask sensitive key file paths
-            const keyFile = host.key_file ? host.key_file.replace(/\/[^\/]+$/, '/***') : 'Not specified';
+            // Show only the key filename
+            const keyFile = host.key_file ? host.key_file.split('/').pop() : 'Not specified';
             
             return `
                 <tr ${!host.enabled ? 'style="opacity: 0.6;"' : ''}>
@@ -1071,6 +1094,58 @@ class Dashboard {
         }).join('');
         
         tableBody.innerHTML = rows;
+    }
+    
+    sortHosts(hosts) {
+        return hosts.sort((a, b) => {
+            let aValue, bValue;
+            
+            switch (this.hostsSortColumn) {
+                case 'alias':
+                    aValue = a.alias.toLowerCase();
+                    bValue = b.alias.toLowerCase();
+                    break;
+                case 'hostname':
+                    aValue = a.hostname.toLowerCase();
+                    bValue = b.hostname.toLowerCase();
+                    break;
+                case 'user':
+                    aValue = a.user.toLowerCase();
+                    bValue = b.user.toLowerCase();
+                    break;
+                case 'port':
+                    aValue = a.port;
+                    bValue = b.port;
+                    break;
+                case 'status':
+                    // Sort by connection status
+                    const aConnInfo = this.hostsData.connection_status[a.hostname];
+                    const bConnInfo = this.hostsData.connection_status[b.hostname];
+                    
+                    if (!a.enabled) aValue = 0; // Disabled
+                    else if (aConnInfo && aConnInfo.connected) aValue = 2; // Connected
+                    else aValue = 1; // Disconnected/Unknown
+                    
+                    if (!b.enabled) bValue = 0; // Disabled
+                    else if (bConnInfo && bConnInfo.connected) bValue = 2; // Connected
+                    else bValue = 1; // Disconnected/Unknown
+                    break;
+                case 'description':
+                    aValue = (a.description || '').toLowerCase();
+                    bValue = (b.description || '').toLowerCase();
+                    break;
+                default:
+                    return 0;
+            }
+            
+            if (aValue < bValue) {
+                return this.hostsSortDirection === 'asc' ? -1 : 1;
+            }
+            if (aValue > bValue) {
+                return this.hostsSortDirection === 'asc' ? 1 : -1;
+            }
+            return 0;
+        });
     }
 
     // Health Tab

@@ -11,10 +11,6 @@ services:
     ports:
       - "8081:8080"
     environment:
-      # Required environment variables (set in .env file)
-      - DOCKER_HOSTS=${DOCKER_HOSTS}
-      - SSH_USER=${SSH_USER}
-
       # Optional configuration (defaults provided)
       - CADDY_API_URL=${CADDY_API_URL:-http://vm-switchboard.snadboy.com:2019}
       - RECONCILE_INTERVAL=${RECONCILE_INTERVAL:-300}

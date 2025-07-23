@@ -185,7 +185,7 @@ class DockerMonitor:
     def __init__(self, caddy_manager=None):
         self.caddy_manager = caddy_manager
         self.containers: Dict[str, ContainerInfo] = {}
-        self.hosts_config = settings.parse_docker_hosts()
+        self.hosts_config = settings.get_docker_hosts()
         self.executor = ThreadPoolExecutor(max_workers=len(self.hosts_config) or 1)
         self._running = False
         self._tasks: List[asyncio.Task] = []

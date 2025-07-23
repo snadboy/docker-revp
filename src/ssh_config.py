@@ -69,21 +69,13 @@ class SSHConfigManager:
     
     def _generate_ssh_config(self) -> None:
         """Generate SSH config file for Docker hosts."""
-        # Try to use hosts.yml configuration first
-        if settings.has_hosts_config():
-            self._generate_ssh_config_from_hosts_yml()
-        else:
-            # Fall back to legacy DOCKER_HOSTS
-            self._generate_ssh_config_from_docker_hosts()
+        self._generate_ssh_config_from_hosts_yml()
     
     def _generate_ssh_config_from_hosts_yml(self) -> None:
         """Generate SSH config from hosts.yml configuration."""
-        hosts_config = settings.get_hosts_config()
-        if not hosts_config:
-            ssh_logger.warning("No hosts.yml configuration available")
-            return
-        
+        hosts_config = settings.load_hosts_config()
         enabled_hosts = hosts_config.get_enabled_hosts()
+        
         if not enabled_hosts:
             ssh_logger.warning("No enabled hosts found in hosts.yml")
             return
@@ -125,46 +117,6 @@ class SSHConfigManager:
         
         ssh_logger.info(f"SSH config written successfully with {len(enabled_hosts)} hosts from hosts.yml")
     
-    def _generate_ssh_config_from_docker_hosts(self) -> None:
-        """Generate SSH config from legacy DOCKER_HOSTS environment variable."""
-        hosts = settings.parse_docker_hosts()
-        
-        if not hosts:
-            ssh_logger.warning("No Docker hosts configured in DOCKER_HOSTS")
-            return
-        
-        ssh_logger.info(f"Generating SSH config for {len(hosts)} hosts from DOCKER_HOSTS")
-        
-        # Read existing config if it exists
-        existing_config = self._read_existing_config()
-        
-        # Generate new config section
-        config_lines = ["# BEGIN DOCKER MONITOR MANAGED HOSTS"]
-        config_lines.append("# Generated from DOCKER_HOSTS environment variable")
-        
-        for alias, host, port in hosts:
-            config_lines.extend([
-                f"Host {alias}",
-                f"    HostName {host}",
-                f"    User {settings.ssh_user}",
-                f"    Port {port}",
-                f"    IdentityFile {self.key_file}",
-                "    PasswordAuthentication no",
-                "    StrictHostKeyChecking accept-new",
-                "    ServerAliveInterval 60",
-                "    ServerAliveCountMax 3",
-                "    ControlMaster auto",
-                "    ControlPath ~/.ssh/control-%r@%h:%p",
-                "    ControlPersist 10m",
-                ""
-            ])
-        
-        config_lines.append("# END DOCKER MONITOR MANAGED HOSTS")
-        
-        # Write the final config
-        self._write_ssh_config(existing_config, config_lines)
-        
-        ssh_logger.info(f"SSH config written successfully with {len(hosts)} hosts from DOCKER_HOSTS")
     
     def _read_existing_config(self) -> str:
         """Read existing SSH config and remove our managed section."""

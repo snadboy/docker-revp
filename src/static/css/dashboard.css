@@ -1098,6 +1098,21 @@ footer a:hover {
     margin: 0 auto;
 }
 
+/* Allow hosts tab to overflow beyond container max-width like other tabs */
+#hosts-tab {
+    width: 100vw;
+    max-width: none;
+    overflow: visible;
+    margin-left: calc(-50vw + 50%);
+    padding: 0 2rem;
+}
+
+/* Hosts table - same full width as other tabs */
+#hosts-tab .table-container {
+    width: calc(100vw - 4rem);
+    max-width: none;
+}
+
 /* No special table layout rules - use the same as containers table */
 
 #static-routes-table .badge {
