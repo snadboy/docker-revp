@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from .ssh_docker_client import SSHDockerClient
-from .ssh_docker_client.exceptions import SSHDockerError
+from snadboy_ssh_docker import SSHDockerClient
+from snadboy_ssh_docker.exceptions import SSHDockerError
 from .config import settings
 from .logger import docker_logger
 
