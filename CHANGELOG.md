@@ -1,3 +1,16 @@
+# [3.6.0](https://github.com/snadboy/docker-revp/compare/v3.5.0...v3.6.0) (2025-07-25)
+
+
+### Bug Fixes
+
+* correct SSH key path in hosts.yml configuration ([4c4a049](https://github.com/snadboy/docker-revp/commit/4c4a049040aab2ce665d840b78aebbde823524fd))
+
+
+### Features
+
+* integrate SSH Docker Client library ([e13ca29](https://github.com/snadboy/docker-revp/commit/e13ca299deb4f09d90694180b8b480ada38dd088))
+* publish and migrate to snadboy-ssh-docker PyPI package ([d649ef4](https://github.com/snadboy/docker-revp/commit/d649ef41f4b68811dfbcc7048645430fd132822b))
+
 # [3.5.0](https://github.com/snadboy/docker-revp/compare/v3.4.0...v3.5.0) (2025-07-23)
 
 
