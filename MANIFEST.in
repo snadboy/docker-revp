@@ -1,0 +1,4 @@
+include src/snadboy_ssh_docker/README.md
+recursive-include src/snadboy_ssh_docker *.py
+global-exclude __pycache__
+global-exclude *.py[co]

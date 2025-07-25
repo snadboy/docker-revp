@@ -8,3 +8,4 @@ pydantic-settings
 jinja2
 pyyaml
 watchdog
+snadboy-ssh-docker>=0.1.1

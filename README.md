@@ -4,7 +4,7 @@ A Python-based Docker container that monitors Docker containers across multiple 
 
 ## Features
 
-- **Multi-host Docker monitoring** via SSH
+- **Multi-host Docker monitoring** via SSH using [snadboy-ssh-docker](https://pypi.org/project/snadboy-ssh-docker/) library
 - **Real-time container event monitoring** (start, stop, pause, unpause)
 - **Automatic Caddy reverse proxy configuration** via Admin API
 - **Static route configuration** via YAML for external services
