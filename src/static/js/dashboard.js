@@ -362,6 +362,9 @@ class Dashboard {
             case 'version':
                 await this.loadVersionData();
                 break;
+            case 'about':
+                await this.loadAboutData();
+                break;
         }
     }
 
@@ -1290,6 +1293,141 @@ class Dashboard {
         });
     }
 
+    // About Tab
+    async loadAboutData() {
+        try {
+            // Load host count
+            const response = await fetch('/api/hosts');
+            if (response.ok) {
+                const hostsData = await response.json();
+                const hostCount = hostsData.length;
+                document.getElementById('about-host-count').textContent = hostCount;
+            }
+            
+            this.setupAboutEventHandlers();
+        } catch (error) {
+            console.error('Error loading about data:', error);
+            document.getElementById('about-host-count').textContent = 'Error';
+        }
+    }
+
+    setupAboutEventHandlers() {
+        const verifyBtn = document.getElementById('verify-caddy-btn');
+        if (verifyBtn) {
+            verifyBtn.addEventListener('click', () => this.verifyCaddyConfiguration());
+        }
+    }
+
+    async verifyCaddyConfiguration() {
+        const btn = document.getElementById('verify-caddy-btn');
+        const resultsDiv = document.getElementById('verification-results');
+        
+        // Show loading state
+        btn.disabled = true;
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = '<div class="verification-item"><span class="verification-status">⏳</span><span class="verification-message">Verifying configuration...</span></div>';
+        resultsDiv.className = 'verification-results';
+
+        try {
+            // Create verification endpoint request
+            const response = await fetch('/api/verify-caddy');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const verification = await response.json();
+            this.displayVerificationResults(verification);
+            
+        } catch (error) {
+            console.error('Error verifying Caddy configuration:', error);
+            resultsDiv.innerHTML = `
+                <div class="verification-item">
+                    <span class="verification-status error">❌</span>
+                    <span class="verification-message">Verification failed</span>
+                </div>
+                <div class="verification-details">Error: ${error.message}</div>
+            `;
+            resultsDiv.className = 'verification-results error';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    displayVerificationResults(verification) {
+        const resultsDiv = document.getElementById('verification-results');
+        let html = '';
+        let hasErrors = false;
+        let hasWarnings = false;
+
+        // Display summary
+        html += `
+            <div class="verification-item">
+                <span class="verification-status success">✅</span>
+                <span class="verification-message">Verification completed</span>
+            </div>
+        `;
+
+        // Container routes verification
+        if (verification.container_routes) {
+            const containerRoutes = verification.container_routes;
+            const matched = containerRoutes.matched || 0;
+            const missing = containerRoutes.missing || 0;
+            const orphaned = containerRoutes.orphaned || 0;
+
+            html += `
+                <div class="verification-item">
+                    <span class="verification-status ${missing > 0 || orphaned > 0 ? 'warning' : 'success'}">
+                        ${missing > 0 || orphaned > 0 ? '⚠️' : '✅'}
+                    </span>
+                    <span class="verification-message">Container Routes: ${matched} matched</span>
+                </div>
+            `;
+
+            if (missing > 0) {
+                html += `<div class="verification-details">⚠️ ${missing} containers with RevP labels missing Caddy routes</div>`;
+                hasWarnings = true;
+            }
+
+            if (orphaned > 0) {
+                html += `<div class="verification-details">⚠️ ${orphaned} orphaned Caddy routes (containers no longer exist)</div>`;
+                hasWarnings = true;
+            }
+        }
+
+        // Static routes verification
+        if (verification.static_routes) {
+            const staticRoutes = verification.static_routes;
+            const matched = staticRoutes.matched || 0;
+            const missing = staticRoutes.missing || 0;
+
+            html += `
+                <div class="verification-item">
+                    <span class="verification-status ${missing > 0 ? 'warning' : 'success'}">
+                        ${missing > 0 ? '⚠️' : '✅'}
+                    </span>
+                    <span class="verification-message">Static Routes: ${matched} matched</span>
+                </div>
+            `;
+
+            if (missing > 0) {
+                html += `<div class="verification-details">⚠️ ${missing} static routes missing Caddy configuration</div>`;
+                hasWarnings = true;
+            }
+        }
+
+        resultsDiv.innerHTML = html;
+        
+        // Set appropriate styling
+        if (hasErrors) {
+            resultsDiv.className = 'verification-results error';
+        } else if (hasWarnings) {
+            resultsDiv.className = 'verification-results warning';
+        } else {
+            resultsDiv.className = 'verification-results success';
+        }
+    }
+
     // Static Routes Tab
     async loadStaticRoutesData() {
         try {
@@ -1378,6 +1516,10 @@ class Dashboard {
             const wsBadge = route.support_websocket 
                 ? '<span class="badge badge-success">Yes</span>' 
                 : '<span class="badge badge-muted">No</span>';
+                
+            const tlsSkipBadge = route.tls_insecure_skip_verify 
+                ? '<span class="badge badge-warning" title="TLS certificate verification is disabled">Yes</span>' 
+                : '<span class="badge badge-muted">No</span>';
             
             row.innerHTML = `
                 <td title="${route.domain}">${route.domain}</td>
@@ -1385,6 +1527,7 @@ class Dashboard {
                 <td title="${route.backend_path}">${route.backend_path}</td>
                 <td>${sslBadge}</td>
                 <td>${wsBadge}</td>
+                <td>${tlsSkipBadge}</td>
                 <td>
                     <div class="action-buttons">
                         <button class="btn btn-small btn-secondary" onclick="dashboard.editStaticRoute('${route.domain}')">
@@ -1425,6 +1568,10 @@ class Dashboard {
                 case 'support_websocket':
                     aValue = a.support_websocket ? 1 : 0;
                     bValue = b.support_websocket ? 1 : 0;
+                    break;
+                case 'tls_insecure_skip_verify':
+                    aValue = a.tls_insecure_skip_verify ? 1 : 0;
+                    bValue = b.tls_insecure_skip_verify ? 1 : 0;
                     break;
                 default:
                     return 0;
@@ -1528,6 +1675,7 @@ class Dashboard {
             document.getElementById('route-backend-path').value = route.backend_path;
             document.getElementById('route-force-ssl').checked = route.force_ssl;
             document.getElementById('route-support-websocket').checked = route.support_websocket;
+            document.getElementById('route-tls-insecure-skip-verify').checked = route.tls_insecure_skip_verify;
             
             // Store original domain for editing
             form.dataset.originalDomain = route.domain;
@@ -1559,7 +1707,8 @@ class Dashboard {
             backend_url: formData.get('backend_url').trim(),
             backend_path: formData.get('backend_path').trim() || '/',
             force_ssl: formData.has('force_ssl'),
-            support_websocket: formData.has('support_websocket')
+            support_websocket: formData.has('support_websocket'),
+            tls_insecure_skip_verify: formData.has('tls_insecure_skip_verify')
         };
         
         // Show loading state

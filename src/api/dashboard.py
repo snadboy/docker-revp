@@ -417,3 +417,182 @@ async def get_hosts_status(request: Request) -> Dict[str, Any]:
             "connection_status": {},
             "error": str(e)
         }
+
+
+@router.get("/api/verify-caddy")
+async def verify_caddy_configuration(request: Request) -> Dict[str, Any]:
+    """Verify that Caddy configuration matches discovered containers and static routes."""
+    api_logger.info("Caddy configuration verification requested")
+    
+    try:
+        verification = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "container_routes": {
+                "matched": 0,
+                "missing": 0,
+                "orphaned": 0,
+                "details": []
+            },
+            "static_routes": {
+                "matched": 0,
+                "missing": 0,
+                "details": []
+            }
+        }
+        
+        # Get current Caddy configuration
+        caddy_config = {}
+        caddy_routes = {}
+        
+        if request.app.state.caddy_manager:
+            try:
+                caddy_config = await request.app.state.caddy_manager.get_current_config()
+                # Extract route information from Caddy config
+                servers = caddy_config.get("apps", {}).get("http", {}).get("servers", {})
+                for server_name, server_config in servers.items():
+                    routes = server_config.get("routes", [])
+                    for route in routes:
+                        route_id = route.get("@id", "")
+                        if route_id.startswith("revp_route_") or route_id.startswith("revp_static_route_"):
+                            # Extract domain from match
+                            match_conditions = route.get("match", [])
+                            for match in match_conditions:
+                                hosts = match.get("host", [])
+                                if hosts:
+                                    caddy_routes[route_id] = {
+                                        "domain": hosts[0],
+                                        "route_id": route_id
+                                    }
+            except Exception as e:
+                api_logger.error(f"Error getting Caddy configuration: {e}")
+        
+        # Check container routes
+        if request.app.state.docker_monitor:
+            try:
+                # Get all containers with RevP labels from all hosts
+                expected_routes = {}
+                
+                for alias, hostname, port in request.app.state.docker_monitor.hosts_config:
+                    host_containers = request.app.state.docker_monitor.list_containers_sync(hostname)
+                    
+                    for container in host_containers:
+                        container_id = container.get("ID", "")
+                        labels_str = container.get("Labels", "")
+                        
+                        if labels_str and container_id:
+                            labels = {}
+                            for label in labels_str.split(','):
+                                if '=' in label:
+                                    key, value = label.split('=', 1)
+                                    labels[key] = value
+                            
+                            # Check for RevP labels
+                            revp_labels = {k: v for k, v in labels.items() if k.startswith("snadboy.revp.")}
+                            if revp_labels:
+                                # Parse port-based services
+                                services = {}
+                                for label_key, value in revp_labels.items():
+                                    parts = label_key.split(".")
+                                    if len(parts) == 4:  # snadboy.revp.{port}.{property}
+                                        port_num = parts[2]
+                                        property_name = parts[3]
+                                        
+                                        if port_num not in services:
+                                            services[port_num] = {}
+                                        services[port_num][property_name] = value
+                                
+                                # Create expected routes for each service
+                                for port_num, service_labels in services.items():
+                                    domain = service_labels.get("domain")
+                                    if domain:
+                                        expected_route_id = f"revp_route_{container_id}_{port_num}"
+                                        expected_routes[expected_route_id] = {
+                                            "domain": domain,
+                                            "container_id": container_id,
+                                            "port": port_num,
+                                            "hostname": hostname
+                                        }
+                
+                # Compare expected routes with Caddy routes
+                for expected_id, expected_info in expected_routes.items():
+                    if expected_id in caddy_routes:
+                        verification["container_routes"]["matched"] += 1
+                        verification["container_routes"]["details"].append({
+                            "status": "matched",
+                            "route_id": expected_id,
+                            "domain": expected_info["domain"],
+                            "container_id": expected_info["container_id"]
+                        })
+                    else:
+                        verification["container_routes"]["missing"] += 1
+                        verification["container_routes"]["details"].append({
+                            "status": "missing",
+                            "route_id": expected_id,
+                            "domain": expected_info["domain"],
+                            "container_id": expected_info["container_id"],
+                            "message": "Container has RevP labels but no Caddy route found"
+                        })
+                
+                # Check for orphaned routes (routes without corresponding containers)
+                for caddy_id, caddy_info in caddy_routes.items():
+                    if caddy_id.startswith("revp_route_") and caddy_id not in expected_routes:
+                        verification["container_routes"]["orphaned"] += 1
+                        verification["container_routes"]["details"].append({
+                            "status": "orphaned",
+                            "route_id": caddy_id,
+                            "domain": caddy_info["domain"],
+                            "message": "Caddy route exists but no corresponding container found"
+                        })
+                        
+            except Exception as e:
+                api_logger.error(f"Error verifying container routes: {e}")
+        
+        # Check static routes
+        if request.app.state.static_routes_manager:
+            try:
+                static_routes = request.app.state.static_routes_manager.get_routes()
+                
+                for route in static_routes:
+                    domain = route.domain
+                    expected_route_id = f"revp_static_route_{domain.replace('.', '_')}"
+                    
+                    # Check if static route exists in Caddy
+                    found_in_caddy = False
+                    for caddy_id, caddy_info in caddy_routes.items():
+                        if caddy_id.startswith("revp_static_route_") and caddy_info["domain"] == domain:
+                            found_in_caddy = True
+                            break
+                    
+                    if found_in_caddy:
+                        verification["static_routes"]["matched"] += 1
+                        verification["static_routes"]["details"].append({
+                            "status": "matched",
+                            "domain": domain,
+                            "backend_url": route.backend_url
+                        })
+                    else:
+                        verification["static_routes"]["missing"] += 1
+                        verification["static_routes"]["details"].append({
+                            "status": "missing",
+                            "domain": domain,
+                            "backend_url": route.backend_url,
+                            "message": "Static route defined but no Caddy configuration found"
+                        })
+                        
+            except Exception as e:
+                api_logger.error(f"Error verifying static routes: {e}")
+        
+        api_logger.info(f"Caddy verification completed: {verification['container_routes']['matched']} container routes matched, "
+                       f"{verification['container_routes']['missing']} missing, {verification['container_routes']['orphaned']} orphaned, "
+                       f"{verification['static_routes']['matched']} static routes matched, {verification['static_routes']['missing']} static missing")
+        
+        return verification
+        
+    except Exception as e:
+        api_logger.error(f"Error during Caddy verification: {e}")
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+            "container_routes": {"matched": 0, "missing": 0, "orphaned": 0, "details": []},
+            "static_routes": {"matched": 0, "missing": 0, "details": []}
+        }

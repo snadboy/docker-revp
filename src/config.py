@@ -115,10 +115,19 @@ class Settings(BaseSettings):
     def get_docker_hosts(self) -> List[Tuple[str, str, int]]:
         """Get Docker hosts from hosts.yml configuration.
         
-        Returns list of (alias, hostname, port) tuples.
+        Returns list of (hosts_yml_alias, hostname, port) tuples where
+        hosts_yml_alias is the alias defined in hosts.yml (e.g., 'media-arr').
+        The SSH Docker Client expects these hosts.yml aliases, not SSH config aliases.
         """
         hosts_config = self.load_hosts_config()
-        return hosts_config.to_docker_hosts_format()
+        enabled_hosts = hosts_config.get_enabled_hosts()
+        
+        # Return hosts.yml aliases (what SSH Docker Client expects)
+        docker_hosts = []
+        for alias, host_config in enabled_hosts.items():
+            docker_hosts.append((alias, host_config.hostname, host_config.port))
+        
+        return docker_hosts
     
     def validate(self) -> None:
         """Validate required settings."""

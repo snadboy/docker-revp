@@ -20,6 +20,7 @@ class StaticRouteCreate(BaseModel):
     backend_path: str = "/"
     force_ssl: bool = True
     support_websocket: bool = False
+    tls_insecure_skip_verify: bool = False
 
 
 class StaticRouteUpdate(BaseModel):
@@ -29,6 +30,7 @@ class StaticRouteUpdate(BaseModel):
     backend_path: str = "/"
     force_ssl: bool = True
     support_websocket: bool = False
+    tls_insecure_skip_verify: bool = False
 
 
 class StaticRouteResponse(BaseModel):
@@ -38,6 +40,7 @@ class StaticRouteResponse(BaseModel):
     backend_path: str
     force_ssl: bool
     support_websocket: bool
+    tls_insecure_skip_verify: bool
 
 
 class ErrorResponse(BaseModel):
@@ -70,7 +73,8 @@ async def list_static_routes(request: Request) -> List[StaticRouteResponse]:
                 backend_url=route.backend_url,
                 backend_path=route.backend_path,
                 force_ssl=route.force_ssl,
-                support_websocket=route.support_websocket
+                support_websocket=route.support_websocket,
+                tls_insecure_skip_verify=route.tls_insecure_skip_verify
             ))
         
         api_logger.info(f"API: Retrieved {len(routes_response)} static routes")
@@ -108,7 +112,8 @@ async def get_static_route(domain: str, request: Request) -> StaticRouteResponse
             backend_url=route.backend_url,
             backend_path=route.backend_path,
             force_ssl=route.force_ssl,
-            support_websocket=route.support_websocket
+            support_websocket=route.support_websocket,
+            tls_insecure_skip_verify=route.tls_insecure_skip_verify
         )
         
     except HTTPException:
@@ -141,7 +146,8 @@ async def create_static_route(route_data: StaticRouteCreate, request: Request) -
             backend_url=route_data.backend_url,
             backend_path=route_data.backend_path,
             force_ssl=route_data.force_ssl,
-            support_websocket=route_data.support_websocket
+            support_websocket=route_data.support_websocket,
+            tls_insecure_skip_verify=route_data.tls_insecure_skip_verify
         )
         
         # Check if route already exists
@@ -165,7 +171,8 @@ async def create_static_route(route_data: StaticRouteCreate, request: Request) -
             backend_url=static_route.backend_url,
             backend_path=static_route.backend_path,
             force_ssl=static_route.force_ssl,
-            support_websocket=static_route.support_websocket
+            support_websocket=static_route.support_websocket,
+            tls_insecure_skip_verify=static_route.tls_insecure_skip_verify
         )
         
     except ValidationError as e:
@@ -214,7 +221,8 @@ async def update_static_route(
             backend_url=route_data.backend_url,
             backend_path=route_data.backend_path,
             force_ssl=route_data.force_ssl,
-            support_websocket=route_data.support_websocket
+            support_websocket=route_data.support_websocket,
+            tls_insecure_skip_verify=route_data.tls_insecure_skip_verify
         )
         
         # If domain is changing, check for conflicts
@@ -239,7 +247,8 @@ async def update_static_route(
             backend_url=updated_route.backend_url,
             backend_path=updated_route.backend_path,
             force_ssl=updated_route.force_ssl,
-            support_websocket=updated_route.support_websocket
+            support_websocket=updated_route.support_websocket,
+            tls_insecure_skip_verify=updated_route.tls_insecure_skip_verify
         )
         
     except ValidationError as e:
@@ -336,7 +345,8 @@ async def validate_static_route_data(route_data: StaticRouteCreate, request: Req
             backend_url=route_data.backend_url,
             backend_path=route_data.backend_path,
             force_ssl=route_data.force_ssl,
-            support_websocket=route_data.support_websocket
+            support_websocket=route_data.support_websocket,
+            tls_insecure_skip_verify=route_data.tls_insecure_skip_verify
         )
         
         # Check for domain conflicts

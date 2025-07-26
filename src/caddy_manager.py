@@ -256,6 +256,20 @@ class CaddyManager:
             "upstreams": [{"dial": backend_dial}]
         }
         
+        # Add transport configuration for HTTPS backends
+        if service._static_backend_url.startswith("https://"):
+            transport_config = {
+                "protocol": "http",
+                "tls": {}
+            }
+            
+            # Add TLS insecure skip verify if enabled (for self-signed certs)
+            if hasattr(service, 'tls_insecure_skip_verify') and service.tls_insecure_skip_verify:
+                transport_config["tls"]["insecure_skip_verify"] = True
+                caddy_logger.info(f"TLS skip verify enabled for {service.domain} (use only for self-signed certs)")
+            
+            reverse_proxy_handler["transport"] = transport_config
+        
         # Add path rewriting if backend_path is not "/"
         if service.backend_path != "/":
             backend_path = service.backend_path.rstrip("/")

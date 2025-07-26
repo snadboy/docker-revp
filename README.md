@@ -93,6 +93,13 @@ The responsive web dashboard provides comprehensive container and static route m
 
 - **Health Tab**: System component monitoring
 - **Version Tab**: Build information and changelog
+- **About Tab**: System information and configuration verification:
+  - **System Information**: Version, build date, git commit, and host count
+  - **Caddy Verification**: One-click verification of Caddy configuration against:
+    - Container routes (matched, missing, orphaned)
+    - Static routes (matched, missing)
+    - Visual status indicators with detailed results
+  - **Resource Links**: Quick access to API docs and GitHub repository
 
 ### Dashboard Screenshots
 
@@ -532,6 +539,7 @@ For services that aren't running in Docker containers (legacy systems, external 
 | `backend_path` | No | `/` | Path to append to backend requests |
 | `force_ssl` | No | `true` | Force HTTPS redirection |
 | `support_websocket` | No | `false` | Enable WebSocket support |
+| `tls_insecure_skip_verify` | No | `false` | Skip TLS certificate verification (⚠️ **Security Risk**) |
 
 **Features:**
 - **Web dashboard CRUD**: Add, edit, delete routes via user-friendly interface
@@ -541,6 +549,117 @@ For services that aren't running in Docker containers (legacy systems, external 
 - **Dashboard integration**: Static routes appear in the dashboard alongside containers  
 - **API access**: Full REST API for programmatic management
 - **Form validation**: Prevents invalid configurations and domain conflicts
+
+### 🔒 TLS Security Configuration
+
+#### Overview
+
+The `tls_insecure_skip_verify` option allows RevP to proxy traffic to HTTPS backends that use self-signed or invalid certificates. **This is a security-sensitive feature that should only be used in specific, controlled environments.**
+
+#### When to Use TLS Skip Verify
+
+✅ **Appropriate Use Cases:**
+- **Home lab servers** with self-signed certificates (Proxmox, NAS devices, IoT devices)
+- **Internal development environments** where certificate validation isn't critical
+- **Legacy systems** that can't be updated with proper certificates
+- **Local services** on private networks where certificate validation is impractical
+
+❌ **Inappropriate Use Cases:**
+- **Production internet-facing services**
+- **Third-party APIs** or external services
+- **Services handling sensitive data** (payment, personal information)
+- **Services where man-in-the-middle attacks are a concern**
+
+#### Security Implications
+
+⚠️ **CRITICAL SECURITY WARNING**
+
+When `tls_insecure_skip_verify: true` is enabled:
+
+1. **Certificate Validation Bypassed**: RevP will accept any certificate, including:
+   - Self-signed certificates
+   - Expired certificates
+   - Certificates with wrong hostnames
+   - Certificates from untrusted Certificate Authorities
+
+2. **Man-in-the-Middle Vulnerability**: An attacker on the network could potentially:
+   - Intercept and modify traffic between RevP and the backend
+   - Present their own certificate without detection
+   - Eavesdrop on sensitive communications
+
+3. **No Identity Verification**: RevP cannot verify it's actually connecting to the intended backend server
+
+#### Best Practices for TLS Skip Verify
+
+1. **Network Security**: Only use on trusted, isolated networks:
+   ```yaml
+   # Good: Internal home network
+   - domain: homelab.internal.com
+     backend_url: https://192.168.1.100:8006  # Internal IP
+     tls_insecure_skip_verify: true
+   
+   # Bad: External service
+   - domain: api.external-service.com
+     backend_url: https://api.external-service.com
+     tls_insecure_skip_verify: true  # DON'T DO THIS
+   ```
+
+2. **Document Usage**: Always document why TLS skip verify is needed:
+   ```yaml
+   # Example configuration with documentation
+   static_routes:
+   - domain: proxmox.home.lab
+     backend_url: https://192.168.86.100:8006
+     tls_insecure_skip_verify: true
+     # Reason: Proxmox VE uses self-signed certificate in home lab
+     # Risk Assessment: Low (internal network, home environment)
+     # Alternative: Could install custom CA but not practical for home use
+   ```
+
+3. **Regular Review**: Periodically review all routes with TLS skip verify enabled
+
+4. **Consider Alternatives**: Before using TLS skip verify, consider:
+   - Installing a custom Certificate Authority (CA)
+   - Using Let's Encrypt with DNS-01 challenge for internal domains
+   - Configuring the backend service to use proper certificates
+   - Using HTTP instead of HTTPS for truly internal services
+
+#### Configuration Examples
+
+**Home Lab Proxmox Server:**
+```yaml
+static_routes:
+- domain: proxmox.home.lab
+  backend_url: https://192.168.1.100:8006
+  backend_path: /
+  force_ssl: true
+  support_websocket: true
+  tls_insecure_skip_verify: true  # Self-signed cert in home lab
+```
+
+**Secure Production Service (Recommended):**
+```yaml
+static_routes:
+- domain: api.production.com
+  backend_url: https://internal-api.production.com
+  backend_path: /api/v1
+  force_ssl: true
+  support_websocket: false
+  tls_insecure_skip_verify: false  # Proper certificates required
+```
+
+#### Dashboard Warning
+
+When configuring routes through the web dashboard, routes with `tls_insecure_skip_verify: true` will be:
+- Marked with a warning badge in the interface
+- Include tooltips explaining the security implications
+- Display security warnings in the form when enabled
+
+#### Monitoring and Auditing
+
+- All routes with TLS skip verify enabled are logged during startup
+- Use the dashboard to regularly audit which routes have this option enabled
+- Monitor logs for any TLS-related errors that might indicate certificate issues
 
 ## API Endpoints
 
@@ -556,6 +675,11 @@ For services that aren't running in Docker containers (legacy systems, external 
 - `GET /containers` - List all monitored containers
 - `GET /containers/static-routes` - List static routes only
 - `GET /containers/all-services` - Combined containers and static routes
+
+### Configuration Verification
+
+- `GET /api/verify-caddy` - Verify Caddy configuration against discovered containers and static routes
+  - Returns matched, missing, and orphaned routes with detailed status information
 
 ### Static Routes Management
 
@@ -576,7 +700,22 @@ curl -X POST http://localhost:8080/api/static-routes \
     "backend_url": "http://192.168.1.100:3000",
     "backend_path": "/api/v1",
     "force_ssl": true,
-    "support_websocket": false
+    "support_websocket": false,
+    "tls_insecure_skip_verify": false
+  }'
+```
+
+**Create route for self-signed certificate (home lab):**
+```bash
+curl -X POST http://localhost:8080/api/static-routes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "proxmox.home.lab",
+    "backend_url": "https://192.168.1.100:8006",
+    "backend_path": "/",
+    "force_ssl": true,
+    "support_websocket": true,
+    "tls_insecure_skip_verify": true
   }'
 ```
 
@@ -589,7 +728,8 @@ curl -X PUT http://localhost:8080/api/static-routes/api.example.com \
     "backend_url": "http://192.168.1.101:3000",
     "backend_path": "/api/v2",
     "force_ssl": true,
-    "support_websocket": true
+    "support_websocket": true,
+    "tls_insecure_skip_verify": false
   }'
 ```
 

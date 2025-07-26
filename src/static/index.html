@@ -28,6 +28,7 @@
             <button class="tab-button" data-tab="hosts">Hosts</button>
             <button class="tab-button" data-tab="health">Health</button>
             <button class="tab-button" data-tab="version">Version</button>
+            <button class="tab-button" data-tab="about">About</button>
         </div>
 
         <div class="tab-content">
@@ -176,6 +177,7 @@
                                 <th class="sortable" data-sort="backend_path">Backend Path</th>
                                 <th class="sortable" data-sort="force_ssl">Force SSL</th>
                                 <th class="sortable" data-sort="support_websocket">WebSocket</th>
+                                <th class="sortable" data-sort="tls_insecure_skip_verify" title="Skip TLS certificate verification">TLS Skip</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -194,6 +196,7 @@
                         <li><strong>Backend Path:</strong> Optional path prefix for the backend service</li>
                         <li><strong>Force SSL:</strong> Redirect HTTP requests to HTTPS</li>
                         <li><strong>WebSocket:</strong> Enable WebSocket support for the route</li>
+                        <li><strong>TLS Skip:</strong> Skip TLS certificate verification (use only for self-signed certificates)</li>
                     </ul>
                 </div>
             </div>
@@ -312,6 +315,73 @@
                     </div>
                 </div>
             </div>
+
+            <!-- About Tab -->
+            <div id="about-tab" class="tab-panel">
+                <div class="about-section">
+                    <h2>About Docker RevP</h2>
+                    <div class="about-info">
+                        <div class="about-card">
+                            <h3>🚀 Docker Reverse Proxy</h3>
+                            <p>
+                                Docker RevP is an automated reverse proxy solution that dynamically discovers containers
+                                with routing labels and configures Caddy to serve them with automatic HTTPS via Let's Encrypt.
+                            </p>
+                        </div>
+                        
+                        <div class="about-card">
+                            <h3>📋 System Information</h3>
+                            <div class="system-info">
+                                <div class="info-item">
+                                    <span class="info-label">Version:</span>
+                                    <span class="info-value">{{ version }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Build Date:</span>
+                                    <span class="info-value">{{ build_date }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Git Commit:</span>
+                                    <span class="info-value">{{ git_commit }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Monitored Hosts:</span>
+                                    <span class="info-value" id="about-host-count">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="about-card">
+                            <h3>🔧 Configuration Verification</h3>
+                            <p>Verify that Caddy configuration matches discovered containers and static routes.</p>
+                            <div class="verification-controls">
+                                <button id="verify-caddy-btn" class="btn btn-primary">
+                                    <span class="btn-text">Verify Caddy Configuration</span>
+                                    <span class="btn-loading" style="display: none;">Verifying...</span>
+                                </button>
+                            </div>
+                            <div id="verification-results" class="verification-results" style="display: none;">
+                                <!-- Results will be populated here -->
+                            </div>
+                        </div>
+
+                        <div class="about-card">
+                            <h3>📚 Resources</h3>
+                            <div class="resources-links">
+                                <a href="/docs" target="_blank" class="resource-link">
+                                    <span>📖 API Documentation</span>
+                                </a>
+                                <a href="/redoc" target="_blank" class="resource-link">
+                                    <span>📋 API Reference</span>
+                                </a>
+                                <a href="https://github.com/snadboy/docker-revp" target="_blank" class="resource-link">
+                                    <span>🔗 GitHub Repository</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -369,6 +439,15 @@
                         <span class="checkmark"></span>
                         Support WebSocket connections
                     </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="route-tls-insecure-skip-verify" name="tls_insecure_skip_verify">
+                        <span class="checkmark"></span>
+                        Skip TLS certificate verification
+                    </label>
+                    <small class="form-help security-warning">⚠️ Use only for self-signed certificates in home server environments. This reduces security!</small>
                 </div>
                 
                 <div class="form-validation" id="form-validation">

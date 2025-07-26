@@ -8,7 +8,7 @@ import uvicorn
 
 from .config import settings
 from .logger import main_logger
-from .ssh_config import SSHConfigManager
+# SSH configuration is now handled by SSH Docker Client library
 from .docker_monitor import DockerMonitor
 from .caddy_manager import CaddyManager
 from .static_routes import StaticRoutesManager
@@ -19,7 +19,7 @@ class DockerMonitorService:
     """Main service orchestrator."""
     
     def __init__(self):
-        self.ssh_manager: Optional[SSHConfigManager] = None
+        # SSH manager removed - handled by SSH Docker Client library
         self.docker_monitor: Optional[DockerMonitor] = None
         self.caddy_manager: Optional[CaddyManager] = None
         self.static_routes_manager: Optional[StaticRoutesManager] = None
@@ -35,10 +35,8 @@ class DockerMonitorService:
             settings.validate()
             main_logger.info("Configuration validated successfully")
             
-            # Set up SSH configuration
-            main_logger.info("Setting up SSH configuration")
-            self.ssh_manager = SSHConfigManager()
-            self.ssh_manager.setup()
+            # SSH configuration is now handled by SSH Docker Client library
+            main_logger.info("SSH configuration will be handled by SSH Docker Client")
             
             # Initialize Caddy manager
             main_logger.info("Initializing Caddy manager")
@@ -65,7 +63,7 @@ class DockerMonitorService:
             self.app = create_app(
                 docker_monitor=self.docker_monitor,
                 caddy_manager=self.caddy_manager,
-                ssh_manager=self.ssh_manager,
+                ssh_manager=None,  # SSH manager removed
                 static_routes_manager=self.static_routes_manager
             )
             

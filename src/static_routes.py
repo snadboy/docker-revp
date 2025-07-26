@@ -26,6 +26,7 @@ class StaticRoute(BaseModel):
     backend_path: str = "/"
     force_ssl: bool = True
     support_websocket: bool = False
+    tls_insecure_skip_verify: bool = False
     
     @field_validator('domain')
     def validate_domain(cls, v):
@@ -376,6 +377,7 @@ class StaticRoutesManager:
 #     backend_path: /
 #     force_ssl: true
 #     support_websocket: false
+#     tls_insecure_skip_verify: false  # Use only for self-signed certs (home servers)
 
 """
         

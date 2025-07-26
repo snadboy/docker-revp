@@ -23,6 +23,7 @@ class ServiceInfo:
             self.backend_path = static_route.backend_path
             self.force_ssl = static_route.force_ssl
             self.support_websocket = static_route.support_websocket
+            self.tls_insecure_skip_verify = static_route.tls_insecure_skip_verify
             self.resolved_host_port = None
             self._static_backend_url = static_route.backend_url
             self.is_static = True
@@ -34,6 +35,7 @@ class ServiceInfo:
             self.backend_path = labels_dict.get("backend-path", "/")
             self.force_ssl = labels_dict.get("force-ssl", "true").lower() == "true"
             self.support_websocket = labels_dict.get("support-websocket", "false").lower() == "true"
+            self.tls_insecure_skip_verify = False  # Not supported for container labels
             self.resolved_host_port = None
             self._static_backend_url = None
             self.is_static = False
@@ -194,11 +196,11 @@ class DockerMonitor:
         # Initialize SSH Docker Client
         self.ssh_client = SSHDockerClient.from_config(settings.hosts_config_file)
         
-        # Create hostname to alias mapping for backward compatibility
+        # Create hostname to alias mapping using hosts.yml aliases
+        # This maps hostnames to the aliases that SSH Docker Client expects
         self._hostname_to_alias = {}
-        enabled_hosts = self.ssh_client.hosts_config.get_enabled_hosts()
-        for alias, host_config in enabled_hosts.items():
-            self._hostname_to_alias[host_config.hostname] = alias
+        for hosts_yml_alias, hostname, port in self.hosts_config:
+            self._hostname_to_alias[hostname] = hosts_yml_alias
     
     def _get_alias_for_hostname(self, hostname: str) -> str:
         """Get SSH client alias for a hostname."""
