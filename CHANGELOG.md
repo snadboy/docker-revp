@@ -1,3 +1,10 @@
+# [3.7.0](https://github.com/snadboy/docker-revp/compare/v3.6.0...v3.7.0) (2025-07-26)
+
+
+### Features
+
+* add About tab with system info and Caddy configuration verification ([03faf98](https://github.com/snadboy/docker-revp/commit/03faf987e9cb4815effcb5d88f379a7277866dec))
+
 # [3.6.0](https://github.com/snadboy/docker-revp/compare/v3.5.0...v3.6.0) (2025-07-25)
 
 
