@@ -20,47 +20,70 @@ A Python-based Docker container that monitors Docker containers across multiple 
 
 ## Quick Start
 
-1. **Set up environment variables:**
-   ```bash
-   # Copy the example environment file
-   cp .env.example .env
-   
-   # Edit .env file with your configuration
-   nano .env
-   ```
-   
-   **Required variables in .env:**
-   ```bash
-   DOCKER_HOSTS=server1 server2:2222 localhost
-   SSH_USER=your-ssh-user
+### Option 1: Using Pre-built Image (Recommended for Production)
+
+1. **Create a docker-compose.yml file:**
+   ```yaml
+   services:
+     docker-revp:
+       image: ghcr.io/snadboy/docker-revp:latest
+       container_name: docker-revp
+       user: "1000:1000"
+       ports:
+         - "8080:8080"
+       environment:
+         - CADDY_API_URL=http://caddy:2019
+         - LOG_LEVEL=INFO
+       volumes:
+         - ./logs:/var/log/docker-revp
+         - ./ssh-keys/docker_monitor_key:/home/app/.ssh/docker_monitor_key:ro
+         - ./config:/app/config
+       restart: unless-stopped
    ```
 
-   **📋 SSH Private Key Setup:**
-   
-   Create the ssh-keys directory and copy your private key:
-   
+2. **Set up SSH key:**
    ```bash
-   # Create directory
+   # Create directory and copy your private key
    mkdir -p ssh-keys
-   
-   # Copy your private key (any type: RSA, ed25519, etc.)
    cp ~/.ssh/your_private_key ssh-keys/docker_monitor_key
-   
-   # Set proper permissions
    chmod 600 ssh-keys/docker_monitor_key
    ```
 
-2. **Run with Docker Compose:**
+3. **Start the service:**
    ```bash
    docker-compose up -d
    ```
 
-3. **Check health:**
+### Option 2: Building from Source (Development)
+
+1. **Clone and configure:**
+   ```bash
+   git clone https://github.com/snadboy/docker-revp.git
+   cd docker-revp
+   cp .env.example .env
+   nano .env  # Configure DOCKER_HOSTS and SSH_USER
+   ```
+
+2. **Set up SSH key:**
+   ```bash
+   mkdir -p ssh-keys
+   cp ~/.ssh/your_private_key ssh-keys/docker_monitor_key
+   chmod 600 ssh-keys/docker_monitor_key
+   ```
+
+3. **Run with Docker Compose:**
+   ```bash
+   docker-compose up -d
+   ```
+
+### Verify Installation
+
+1. **Check health:**
    ```bash
    curl http://localhost:8080/health/detailed
    ```
 
-4. **Access the dashboard:**
+2. **Access the dashboard:**
    ```bash
    # Web interface
    open http://localhost:8080

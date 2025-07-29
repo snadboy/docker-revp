@@ -254,3 +254,9 @@ caddy/
 
 # Claude Code settings
 .claude/
+
+# Temporary library setup files
+temp-library-setup/
+LIBRARY-SETUP-COMPLETE.md
+snadboy_ssh_docker-*.tar.gz
+snadboy_ssh_docker-*/

@@ -1,0 +1,120 @@
+services:
+  docker-revp:
+    image: ghcr.io/snadboy/docker-revp:latest
+    container_name: docker-revp
+    labels:
+      - "snadboy.revp.8080.domain=revp-api.snadboy.com"
+      - "snadboy.revp.8080.backend-proto=http"
+      - "snadboy.revp.8080.backend-path=/"
+      - "snadboy.revp.8080.force-ssl=true" # Force SSL for the API
+    user: "1000:1000"
+    ports:
+      - "8081:8080"
+    environment:
+      # Optional configuration (defaults provided)
+      - CADDY_API_URL=${CADDY_API_URL:-http://vm-switchboard.snadboy.com:2019}
+      - RECONCILE_INTERVAL=${RECONCILE_INTERVAL:-300}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}
+      - LOG_BACKUP_COUNT=${LOG_BACKUP_COUNT:-5}
+      - API_BIND=${API_BIND:-0.0.0.0:8080}
+    volumes:
+      # Mount log directory for persistence
+      - ./logs:/var/log/docker-revp
+      # Mount SSH private key file (for SSH_USER) for Docker host connections via SSH
+      - /home/revp/.ssh/id_revp:/home/app/.ssh/docker_monitor_key:ro
+      # Mount entire config directory for static routes and hosts configuration
+      - ./config:/app/config
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "sh", "-c", "curl -f http://localhost:$${API_BIND##*:}/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  caddy:
+    build: ./caddy
+    container_name: caddy
+    environment:
+      - CADDY_ADMIN=0.0.0.0:2019 # Allow external access to admin API
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+    labels:
+      # Caddy admin HTTP access
+      - "snadboy.revp.80.domain=caddy.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true" 
+      # Caddy admin HTTPS access
+      - "snadboy.revp.443.domain=caddy-ssl.snadboy.com"
+      - "snadboy.revp.443.backend-proto=http"
+      - "snadboy.revp.443.backend-path=/"
+      - "snadboy.revp.443.force-ssl=true" 
+      # Caddy admin API access
+      - "snadboy.revp.2019.domain=caddy-api.snadboy.com"
+      - "snadboy.revp.2019.backend-proto=http"
+      - "snadboy.revp.2019.backend-path=/"
+      - "snadboy.revp.2019.force-ssl=true" 
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019" # Admin API
+    volumes:
+      - /home/snadboy/docker/docker-revp/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    restart: unless-stopped
+
+    # Example service 1: Whoami
+  whoamiOne:
+    image: traefik/whoami
+    container_name: whoami11
+    ports:
+      - "8011:80" # Example: maps host port 8011 to container port 80
+    labels:
+      - "snadboy.revp.80.domain=whoami11.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=false" 
+
+    restart: unless-stopped
+  # Example service 2: Whoami
+  whoamiTwo:
+    image: traefik/whoami
+    container_name: whoami22
+    ports:
+      - "8012:80" # Example: maps host port 8012 to container port 80
+    labels:
+      - "snadboy.revp.80.domain=whoami22.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=true" 
+    restart: unless-stopped
+  # Example multi-port service: Demonstrates multiple domains for one container
+  multi-port-app:
+    image: traefik/whoami
+    container_name: multi-port-app
+    ports:
+      - "8003:80"   # Main app
+      - "8004:8080" # Admin interface
+    labels:
+      # Main application on port 80
+      - "snadboy.revp.80.domain=app.snadboy.com"
+      - "snadboy.revp.80.backend-proto=http"
+      - "snadboy.revp.80.backend-path=/"
+      - "snadboy.revp.80.force-ssl=true"
+      - "snadboy.revp.80.support-websocket=false"
+      
+      # Admin interface on port 8080
+      - "snadboy.revp.8080.domain=admin.snadboy.com"
+      - "snadboy.revp.8080.backend-proto=http"
+      - "snadboy.revp.8080.backend-path=/admin"
+      - "snadboy.revp.8080.force-ssl=true"
+      - "snadboy.revp.8080.support-websocket=true"
+    restart: unless-stopped
+volumes:
+  caddy_data:
+  caddy_config:
