@@ -1316,6 +1316,35 @@ class Dashboard {
         if (verifyBtn) {
             verifyBtn.addEventListener('click', () => this.verifyCaddyConfiguration());
         }
+        
+        const viewConfigBtn = document.getElementById('view-caddy-config-btn');
+        if (viewConfigBtn) {
+            viewConfigBtn.addEventListener('click', () => this.viewCaddyConfig());
+        }
+        
+        // Setup modal close handlers
+        const modal = document.getElementById('caddy-config-modal');
+        const closeBtn = document.getElementById('caddy-config-close');
+        const closeFooterBtn = document.getElementById('caddy-config-close-btn');
+        
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+        }
+        
+        if (closeFooterBtn) {
+            closeFooterBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+        }
+        
+        // Close modal when clicking outside
+        window.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
     }
 
     async verifyCaddyConfiguration() {
@@ -1425,6 +1454,48 @@ class Dashboard {
             resultsDiv.className = 'verification-results warning';
         } else {
             resultsDiv.className = 'verification-results success';
+        }
+    }
+    
+    async viewCaddyConfig() {
+        const btn = document.getElementById('view-caddy-config-btn');
+        const modal = document.getElementById('caddy-config-modal');
+        const content = document.getElementById('caddy-config-content');
+        
+        // Show loading state
+        btn.disabled = true;
+        btn.querySelector('.btn-text').style.display = 'none';
+        btn.querySelector('.btn-loading').style.display = 'inline';
+        
+        try {
+            const response = await fetch('/api/caddy-config');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.config) {
+                content.textContent = data.config;
+                // Apply syntax highlighting if available
+                if (typeof Prism !== 'undefined') {
+                    content.innerHTML = Prism.highlight(data.config, Prism.languages.json, 'json');
+                }
+            } else {
+                content.textContent = data.error || 'Failed to load configuration';
+            }
+            
+            modal.style.display = 'block';
+            
+        } catch (error) {
+            console.error('Error loading Caddy configuration:', error);
+            content.textContent = `Error: ${error.message}`;
+            modal.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.querySelector('.btn-text').style.display = 'inline';
+            btn.querySelector('.btn-loading').style.display = 'none';
         }
     }
 

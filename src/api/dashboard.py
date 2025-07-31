@@ -596,3 +596,30 @@ async def verify_caddy_configuration(request: Request) -> Dict[str, Any]:
             "container_routes": {"matched": 0, "missing": 0, "orphaned": 0, "details": []},
             "static_routes": {"matched": 0, "missing": 0, "details": []}
         }
+
+@app.get("/api/caddy-config", response_model=Dict[str, Any], tags=["about"])
+async def get_caddy_config(request: Request) -> Dict[str, Any]:
+    """Get the current Caddy configuration."""
+    api_logger.info("Caddy configuration requested")
+    
+    try:
+        # Get Caddy config from the API
+        caddy_config = await request.app.state.caddy_manager.get_config()
+        
+        # Pretty format the JSON
+        formatted_config = json.dumps(caddy_config, indent=2, sort_keys=True)
+        
+        return {
+            "success": True,
+            "config": formatted_config,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        api_logger.error(f"Error retrieving Caddy configuration: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "config": None,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
