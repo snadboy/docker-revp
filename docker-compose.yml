@@ -131,12 +131,13 @@ services:
     volumes:
       - ./caddy/logs:/var/log/caddy:ro
       - ./goaccess/data:/goaccess-data
+      - ./goaccess/html:/srv/data
       - ./goaccess/goaccess.conf:/goaccess/goaccess.conf:ro
     environment:
       - GOACCESS_PORT=7890
     command: >
       /var/log/caddy/access.log
-      -o /usr/share/nginx/html/index.html
+      -o /srv/data/index.html
       --real-time-html
       --ws-url=wss://logs.snadboy.com:443
       --port=7890
