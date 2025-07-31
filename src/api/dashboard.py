@@ -597,7 +597,7 @@ async def verify_caddy_configuration(request: Request) -> Dict[str, Any]:
             "static_routes": {"matched": 0, "missing": 0, "details": []}
         }
 
-@app.get("/api/caddy-config", response_model=Dict[str, Any], tags=["about"])
+@router.get("/api/caddy-config", response_model=Dict[str, Any], tags=["about"])
 async def get_caddy_config(request: Request) -> Dict[str, Any]:
     """Get the current Caddy configuration."""
     api_logger.info("Caddy configuration requested")
