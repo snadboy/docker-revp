@@ -3,7 +3,7 @@ services:
     build: .
     container_name: docker-revp
     labels:
-      - "snadboy.revp.8080.domain=revp-api.snadboy.com"
+      - "snadboy.revp.8080.domain=revp.snadboy.com"
       - "snadboy.revp.8080.backend-proto=http"
       - "snadboy.revp.8080.backend-path=/"
       - "snadboy.revp.8080.force-ssl=true" # Force SSL for the API

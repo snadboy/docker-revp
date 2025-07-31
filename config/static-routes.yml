@@ -12,17 +12,30 @@
 #     backend_path: /
 #     force_ssl: true
 #     support_websocket: false
+#     tls_insecure_skip_verify: false  # Use only for self-signed certs (home servers)
 
 static_routes:
 - domain: colossus.snadboy.com
-  backend_url: https://192.168.86.102:8006
-  backend_path: /
-  force_ssl: false
-  support_websocket: true
-  tls_insecure_skip_verify: true
-- domain: guardian.snadboy.com
-  backend_url: https://192.168.86.96:8006
+  backend_url: https://colossus:8006
   backend_path: /
   force_ssl: true
   support_websocket: true
   tls_insecure_skip_verify: true
+- domain: guardian.snadboy.com
+  backend_url: https://guardian:8006
+  backend_path: /
+  force_ssl: true
+  support_websocket: true
+  tls_insecure_skip_verify: true
+- domain: pihole.snadboy.com
+  backend_url: https://dns:443
+  backend_path: /
+  force_ssl: true
+  support_websocket: false
+  tls_insecure_skip_verify: true
+- domain: unifi.snadboy.com
+  backend_url: http://192.168.86.1:80
+  backend_path: /
+  force_ssl: false
+  support_websocket: false
+  tls_insecure_skip_verify: false

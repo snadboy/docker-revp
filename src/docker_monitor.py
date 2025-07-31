@@ -286,12 +286,9 @@ class DockerMonitor:
             # Get the default gateway from inside a container's perspective
             return "host.docker.internal"
         
-        # For remote hosts, try to resolve the IP
-        try:
-            import socket
-            return socket.gethostbyname(host)
-        except:
-            return host  # Return original if resolution fails
+        # For remote hosts, just use the hostname as specified
+        # This allows users to use whatever they want: DNS names, IPs, Tailscale names, etc.
+        return host
     
     async def _handle_event(self, alias: str, host: str, host_ip: str, event: dict) -> None:
         """Handle a Docker container event."""
