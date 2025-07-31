@@ -1,3 +1,11 @@
+# [3.8.0](https://github.com/snadboy/docker-revp/compare/v3.7.0...v3.8.0) (2025-07-31)
+
+
+### Features
+
+* add production deployment configuration ([fa15c1d](https://github.com/snadboy/docker-revp/commit/fa15c1d19f4d33ee21f10a634a589e375284fe5f))
+* simplify host resolution and add architecture documentation ([c65875d](https://github.com/snadboy/docker-revp/commit/c65875d3d6238384f24b732210136d310768e99d))
+
 # [3.7.0](https://github.com/snadboy/docker-revp/compare/v3.6.0...v3.7.0) (2025-07-26)
 
 
