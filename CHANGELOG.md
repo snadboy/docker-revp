@@ -1,3 +1,19 @@
+# [3.9.0](https://github.com/snadboy/docker-revp/compare/v3.8.0...v3.9.0) (2025-08-01)
+
+
+### Bug Fixes
+
+* improve Caddy config viewer UI and functionality ([d49c6db](https://github.com/snadboy/docker-revp/commit/d49c6db3e4917fc31fb77f1609b42acd14c643d1))
+* remove invalid status-code options from goaccess config ([2e026bc](https://github.com/snadboy/docker-revp/commit/2e026bcb809c065e0d3bfe43c70e40c429e8363d))
+* update goaccess output path and create html directory ([2ade6bd](https://github.com/snadboy/docker-revp/commit/2ade6bd6660e86f3740094535254dde1e0a466e9))
+* use router decorator instead of app for caddy-config endpoint ([3af1dfa](https://github.com/snadboy/docker-revp/commit/3af1dfa7cb844b2208161c4662f4c021c85da425))
+
+
+### Features
+
+* add Caddy config viewer and GoAccess log analyzer ([4552b97](https://github.com/snadboy/docker-revp/commit/4552b9779fff344f40b4fb7ec28dbc1509f510cf))
+* enhance Caddy config viewer with search, copy, and download ([a125f1b](https://github.com/snadboy/docker-revp/commit/a125f1b52646e3229a533ae73c982f8d34eeffd0))
+
 # [3.8.0](https://github.com/snadboy/docker-revp/compare/v3.7.0...v3.8.0) (2025-07-31)
 
 
