@@ -498,9 +498,9 @@
                 <h3>Caddy Configuration</h3>
                 <button class="modal-close" id="caddy-config-close">&times;</button>
             </div>
-            <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
                 <!-- Search bar -->
-                <div class="config-search-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center;">
+                <div class="config-search-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; flex-shrink: 0;">
                     <input type="text" id="caddy-config-search" placeholder="Search configuration..." 
                            style="flex: 1; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--hover-color); color: var(--text-primary);">
                     <button type="button" class="btn btn-small btn-secondary" id="caddy-config-search-prev" title="Previous match">
@@ -515,8 +515,12 @@
                     <span id="caddy-config-search-status" style="min-width: 100px; text-align: right; color: var(--text-secondary); font-size: 0.875rem;"></span>
                 </div>
                 <!-- Config content -->
-                <div style="position: relative; flex: 1; overflow: hidden;">
-                    <pre id="caddy-config-content" style="background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 0.375rem; overflow: auto; height: 100%; margin: 0; font-family: 'Courier New', monospace; font-size: 0.875rem; line-height: 1.5;">Loading configuration...</pre>
+                <div class="config-content-wrapper" style="flex: 1; min-height: 0; display: flex; border-radius: 0.375rem; overflow: auto; position: relative; background: #1e1e1e;">
+                    <div class="line-numbers-container" style="position: sticky; left: 0; z-index: 1; flex-shrink: 0; min-height: 100%;">
+                        <div id="caddy-config-line-numbers" class="line-numbers" style="user-select: none; padding: 1rem 0.5rem; text-align: right; color: #858585; font-family: 'Courier New', monospace; font-size: 0.875rem; line-height: 1.5; background: #1a1a1a; min-height: 100%; box-sizing: border-box; border-right: 1px solid #3e3e3e;">
+                        </div>
+                    </div>
+                    <pre id="caddy-config-content" style="flex: 1; color: #d4d4d4; padding: 1rem; margin: 0; font-family: 'Courier New', monospace; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">Loading configuration...</pre>
                 </div>
             </div>
             <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">

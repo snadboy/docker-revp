@@ -1331,6 +1331,7 @@ class Dashboard {
                 modal.classList.remove('show');
                 this.clearCaddyConfigSearch();
                 this.caddySearchInitialized = false;
+                this.cleanupCaddyConfigHandlers();
             });
         }
         
@@ -1340,6 +1341,7 @@ class Dashboard {
                 modal.classList.remove('show');
                 this.clearCaddyConfigSearch();
                 this.caddySearchInitialized = false;
+                this.cleanupCaddyConfigHandlers();
             }
         });
         
@@ -1349,6 +1351,7 @@ class Dashboard {
                 modal.classList.remove('show');
                 this.clearCaddyConfigSearch();
                 this.caddySearchInitialized = false;
+                this.cleanupCaddyConfigHandlers();
             }
         });
         
@@ -1498,9 +1501,15 @@ class Dashboard {
                 content.textContent = data.config;
                 this.caddyConfigRawContent = data.config; // Store raw content for download and search
                 // Don't apply syntax highlighting as it interferes with search
+                
+                // Generate line numbers
+                this.generateLineNumbers();
             } else {
                 content.textContent = data.error || 'Failed to load configuration';
                 this.caddyConfigRawContent = null;
+                // Clear line numbers
+                const lineNumbers = document.getElementById('caddy-config-line-numbers');
+                if (lineNumbers) lineNumbers.innerHTML = '';
             }
             
             modal.classList.add('show');
@@ -1508,6 +1517,7 @@ class Dashboard {
             // Setup search after modal is shown and content is loaded
             setTimeout(() => {
                 this.setupCaddyConfigSearch();
+                this.setupCaddyConfigKeyboardShortcuts();
             }, 100);
             
         } catch (error) {
@@ -1588,6 +1598,9 @@ class Dashboard {
                 highlightedContent += this.escapeHtml(contentText.substring(lastIndex));
                 content.innerHTML = highlightedContent;
                 
+                // Regenerate line numbers after content change
+                this.generateLineNumbers();
+                
                 // Navigate to first match
                 this.currentMatchIndex = 0;
                 this.navigateToMatch(0);
@@ -1597,6 +1610,9 @@ class Dashboard {
                 content.textContent = contentText;
                 searchStatus.textContent = 'No matches';
                 this.currentMatchIndex = -1;
+                
+                // Regenerate line numbers
+                this.generateLineNumbers();
             }
         };
         
@@ -1643,17 +1659,14 @@ class Dashboard {
             const highlight = highlights[index];
             highlight.classList.add('current-match');
             
-            // Get the content container
-            const content = document.getElementById('caddy-config-content');
-            if (content) {
-                // Calculate position of the highlight relative to the content container
-                const contentRect = content.getBoundingClientRect();
-                const highlightRect = highlight.getBoundingClientRect();
-                
-                // Scroll the content container to show the highlight
-                const scrollTop = content.scrollTop + (highlightRect.top - contentRect.top) - (contentRect.height / 2);
-                content.scrollTop = scrollTop;
-            }
+            // Scroll the highlight into view
+            highlight.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+            });
+            
+            console.log('Scrolled to match', index);
         }
     }
     
@@ -1692,6 +1705,8 @@ class Dashboard {
         if (this.caddyConfigRawContent && content) {
             content.textContent = this.caddyConfigRawContent;
             // Don't apply syntax highlighting here as it interferes with search
+            // Regenerate line numbers
+            this.generateLineNumbers();
         }
         
         this.searchMatches = [];
@@ -1703,16 +1718,27 @@ class Dashboard {
         const btnText = copyBtn.querySelector('.btn-text');
         const btnLoading = copyBtn.querySelector('.btn-loading');
         
-        if (!this.caddyConfigRawContent) {
+        // Check if there's selected text
+        const selection = window.getSelection();
+        let textToCopy = '';
+        
+        if (selection && selection.toString().trim()) {
+            // Copy selected text
+            textToCopy = selection.toString();
+        } else if (this.caddyConfigRawContent) {
+            // Copy entire config
+            textToCopy = this.caddyConfigRawContent;
+        } else {
             this.showToast('No configuration to copy', 'error');
             return;
         }
         
         try {
-            await navigator.clipboard.writeText(this.caddyConfigRawContent);
+            await navigator.clipboard.writeText(textToCopy);
             
-            // Show success state
-            btnText.textContent = 'Copied!';
+            // Show success state with appropriate message
+            const copiedText = selection && selection.toString().trim() ? 'Selection Copied!' : 'Copied!';
+            btnText.textContent = copiedText;
             copyBtn.classList.add('btn-success');
             
             setTimeout(() => {
@@ -1741,6 +1767,76 @@ class Dashboard {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+    
+    generateLineNumbers() {
+        const content = document.getElementById('caddy-config-content');
+        const lineNumbersDiv = document.getElementById('caddy-config-line-numbers');
+        
+        if (!content || !lineNumbersDiv) return;
+        
+        // Count lines in the content
+        const lines = (content.textContent || '').split('\n');
+        const lineCount = lines.length;
+        
+        // Generate line numbers
+        let lineNumbersHtml = '';
+        for (let i = 1; i <= lineCount; i++) {
+            lineNumbersHtml += `<div style="line-height: 1.5;">${i}</div>`;
+        }
+        
+        lineNumbersDiv.innerHTML = lineNumbersHtml;
+    }
+    
+    setupCaddyConfigKeyboardShortcuts() {
+        const modal = document.getElementById('caddy-config-modal');
+        const content = document.getElementById('caddy-config-content');
+        
+        if (!modal || !content) return;
+        
+        // Remove any existing listener to avoid duplicates
+        if (this.caddyConfigKeyHandler) {
+            document.removeEventListener('keydown', this.caddyConfigKeyHandler);
+        }
+        
+        // Create the key handler
+        this.caddyConfigKeyHandler = (e) => {
+            // Only handle if modal is visible
+            if (!modal.classList.contains('show')) return;
+            
+            // Handle Ctrl+A or Cmd+A
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                // Check if we're in the search input
+                const searchInput = document.getElementById('caddy-config-search');
+                if (document.activeElement === searchInput) {
+                    // Let default behavior work in search input
+                    return;
+                }
+                
+                e.preventDefault();
+                
+                // Select all text in the config content
+                const range = document.createRange();
+                range.selectNodeContents(content);
+                
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                
+                console.log('Selected all config content');
+            }
+        };
+        
+        // Add the event listener
+        document.addEventListener('keydown', this.caddyConfigKeyHandler);
+    }
+    
+    cleanupCaddyConfigHandlers() {
+        // Remove keyboard shortcut handler
+        if (this.caddyConfigKeyHandler) {
+            document.removeEventListener('keydown', this.caddyConfigKeyHandler);
+            this.caddyConfigKeyHandler = null;
+        }
     }
 
     // Static Routes Tab
