@@ -359,6 +359,10 @@
                                     <span class="btn-text">Verify Caddy Configuration</span>
                                     <span class="btn-loading" style="display: none;">Verifying...</span>
                                 </button>
+                                <button id="view-caddy-config-btn" class="btn btn-primary">
+                                    <span class="btn-text">View Caddy Config</span>
+                                    <span class="btn-loading" style="display: none;">Loading...</span>
+                                </button>
                             </div>
                             <div id="verification-results" class="verification-results" style="display: none;">
                                 <!-- Results will be populated here -->
@@ -376,6 +380,9 @@
                                 </a>
                                 <a href="https://github.com/snadboy/docker-revp" target="_blank" class="resource-link">
                                     <span>🔗 GitHub Repository</span>
+                                </a>
+                                <a href="https://logs.snadboy.com" target="_blank" class="resource-link">
+                                    <span>📊 Access Logs (GoAccess)</span>
                                 </a>
                             </div>
                         </div>
@@ -479,6 +486,50 @@
                 <button type="button" class="btn btn-danger" id="confirm-ok">
                     <span class="btn-text">Confirm</span>
                     <span class="btn-loading" style="display: none;">Processing...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Caddy Config Modal -->
+    <div id="caddy-config-modal" class="modal">
+        <div class="modal-content" style="max-width: 90%; width: 1200px; max-height: 90vh; display: flex; flex-direction: column; margin: auto;">
+            <div class="modal-header">
+                <h3>Caddy Configuration</h3>
+                <button class="modal-close" id="caddy-config-close">&times;</button>
+            </div>
+            <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <!-- Search bar -->
+                <div class="config-search-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; flex-shrink: 0;">
+                    <input type="text" id="caddy-config-search" placeholder="Search configuration..." 
+                           style="flex: 1; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--hover-color); color: var(--text-primary);">
+                    <button type="button" class="btn btn-small btn-secondary" id="caddy-config-search-prev" title="Previous match">
+                        <span style="font-size: 1rem;">↑</span>
+                    </button>
+                    <button type="button" class="btn btn-small btn-secondary" id="caddy-config-search-next" title="Next match">
+                        <span style="font-size: 1rem;">↓</span>
+                    </button>
+                    <button type="button" class="btn btn-small btn-secondary" id="caddy-config-search-clear" title="Clear search">
+                        <span style="font-size: 0.875rem;">Clear</span>
+                    </button>
+                    <span id="caddy-config-search-status" style="min-width: 100px; text-align: right; color: var(--text-secondary); font-size: 0.875rem;"></span>
+                </div>
+                <!-- Config content -->
+                <div class="config-content-wrapper" style="flex: 1; min-height: 0; display: flex; border-radius: 0.375rem; overflow: auto; position: relative; background: #1e1e1e;">
+                    <div class="line-numbers-container" style="position: sticky; left: 0; z-index: 1; flex-shrink: 0; min-height: 100%;">
+                        <div id="caddy-config-line-numbers" class="line-numbers" style="user-select: none; padding: 1rem 0.5rem; text-align: right; color: #858585; font-family: 'Courier New', monospace; font-size: 0.875rem; line-height: 1.5; background: #1a1a1a; min-height: 100%; box-sizing: border-box; border-right: 1px solid #3e3e3e;">
+                        </div>
+                    </div>
+                    <pre id="caddy-config-content" style="flex: 1; color: #d4d4d4; padding: 1rem; margin: 0; font-family: 'Courier New', monospace; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">Loading configuration...</pre>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-primary" id="caddy-config-copy">
+                    <span class="btn-text">Copy</span>
+                    <span class="btn-loading" style="display: none;">Copying...</span>
+                </button>
+                <button type="button" class="btn btn-primary" id="caddy-config-download">
+                    <span class="btn-text">Download</span>
                 </button>
             </div>
         </div>
