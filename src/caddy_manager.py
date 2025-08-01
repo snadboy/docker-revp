@@ -675,6 +675,10 @@ class CaddyManager:
             caddy_logger.error(f"Failed to get Caddy config: {e}")
             return {}
     
+    async def get_config(self) -> dict:
+        """Get current Caddy configuration (alias for get_current_config)."""
+        return await self.get_current_config()
+    
     def get_status(self) -> dict:
         """Get Caddy manager status."""
         return {

@@ -1325,26 +1325,44 @@ class Dashboard {
         // Setup modal close handlers
         const modal = document.getElementById('caddy-config-modal');
         const closeBtn = document.getElementById('caddy-config-close');
-        const closeFooterBtn = document.getElementById('caddy-config-close-btn');
         
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
-                modal.style.display = 'none';
-            });
-        }
-        
-        if (closeFooterBtn) {
-            closeFooterBtn.addEventListener('click', () => {
-                modal.style.display = 'none';
+                modal.classList.remove('show');
+                this.clearCaddyConfigSearch();
+                this.caddySearchInitialized = false;
             });
         }
         
         // Close modal when clicking outside
         window.addEventListener('click', (event) => {
             if (event.target === modal) {
-                modal.style.display = 'none';
+                modal.classList.remove('show');
+                this.clearCaddyConfigSearch();
+                this.caddySearchInitialized = false;
             }
         });
+        
+        // Close modal with ESC key
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && modal.classList.contains('show')) {
+                modal.classList.remove('show');
+                this.clearCaddyConfigSearch();
+                this.caddySearchInitialized = false;
+            }
+        });
+        
+        // Setup copy button
+        const copyBtn = document.getElementById('caddy-config-copy');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => this.copyCaddyConfig());
+        }
+        
+        // Setup download button
+        const downloadBtn = document.getElementById('caddy-config-download');
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => this.downloadCaddyConfig());
+        }
     }
 
     async verifyCaddyConfiguration() {
@@ -1478,25 +1496,251 @@ class Dashboard {
             
             if (data.success && data.config) {
                 content.textContent = data.config;
-                // Apply syntax highlighting if available
-                if (typeof Prism !== 'undefined') {
-                    content.innerHTML = Prism.highlight(data.config, Prism.languages.json, 'json');
-                }
+                this.caddyConfigRawContent = data.config; // Store raw content for download and search
+                // Don't apply syntax highlighting as it interferes with search
             } else {
                 content.textContent = data.error || 'Failed to load configuration';
+                this.caddyConfigRawContent = null;
             }
             
-            modal.style.display = 'block';
+            modal.classList.add('show');
+            
+            // Setup search after modal is shown and content is loaded
+            setTimeout(() => {
+                this.setupCaddyConfigSearch();
+            }, 100);
             
         } catch (error) {
             console.error('Error loading Caddy configuration:', error);
             content.textContent = `Error: ${error.message}`;
-            modal.style.display = 'block';
+            this.caddyConfigRawContent = null;
+            modal.classList.add('show');
         } finally {
             btn.disabled = false;
             btn.querySelector('.btn-text').style.display = 'inline';
             btn.querySelector('.btn-loading').style.display = 'none';
         }
+    }
+    
+    setupCaddyConfigSearch() {
+        // Don't set up if already initialized
+        if (this.caddySearchInitialized) return;
+        
+        const searchInput = document.getElementById('caddy-config-search');
+        const searchPrev = document.getElementById('caddy-config-search-prev');
+        const searchNext = document.getElementById('caddy-config-search-next');
+        const searchClear = document.getElementById('caddy-config-search-clear');
+        const searchStatus = document.getElementById('caddy-config-search-status');
+        const content = document.getElementById('caddy-config-content');
+        
+        if (!searchInput || !content) {
+            console.log('Search elements not found');
+            return;
+        }
+        
+        this.searchMatches = [];
+        this.currentMatchIndex = -1;
+        
+        const performSearch = () => {
+            const searchTerm = searchInput.value.trim();
+            if (!searchTerm) {
+                this.clearCaddyConfigSearch();
+                return;
+            }
+            
+            console.log('Searching for:', searchTerm);
+            
+            // Get the raw text content
+            const contentText = this.caddyConfigRawContent || content.textContent || '';
+            console.log('Content length:', contentText.length);
+            
+            // Find all matches (case insensitive)
+            this.searchMatches = [];
+            const searchTermLower = searchTerm.toLowerCase();
+            const contentLower = contentText.toLowerCase();
+            let startIndex = 0;
+            
+            while (startIndex < contentText.length) {
+                const index = contentLower.indexOf(searchTermLower, startIndex);
+                if (index === -1) break;
+                
+                this.searchMatches.push({
+                    start: index,
+                    end: index + searchTerm.length
+                });
+                startIndex = index + 1;
+            }
+            
+            console.log('Found matches:', this.searchMatches.length);
+            
+            // Update status
+            if (this.searchMatches.length > 0) {
+                // Highlight matches
+                let highlightedContent = '';
+                let lastIndex = 0;
+                
+                this.searchMatches.forEach((match, index) => {
+                    highlightedContent += this.escapeHtml(contentText.substring(lastIndex, match.start));
+                    highlightedContent += `<span class="search-highlight${index === 0 ? ' current-match' : ''}" data-match-index="${index}">${this.escapeHtml(contentText.substring(match.start, match.end))}</span>`;
+                    lastIndex = match.end;
+                });
+                
+                highlightedContent += this.escapeHtml(contentText.substring(lastIndex));
+                content.innerHTML = highlightedContent;
+                
+                // Navigate to first match
+                this.currentMatchIndex = 0;
+                this.navigateToMatch(0);
+                this.updateSearchStatus();
+            } else {
+                // No matches - restore original content
+                content.textContent = contentText;
+                searchStatus.textContent = 'No matches';
+                this.currentMatchIndex = -1;
+            }
+        };
+        
+        // Add event listeners
+        searchInput.addEventListener('input', performSearch);
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    this.navigateToPreviousMatch();
+                } else {
+                    this.navigateToNextMatch();
+                }
+            }
+        });
+        
+        searchPrev.addEventListener('click', () => this.navigateToPreviousMatch());
+        searchNext.addEventListener('click', () => this.navigateToNextMatch());
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            this.clearCaddyConfigSearch();
+        });
+        
+        this.caddySearchInitialized = true;
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    navigateToMatch(index) {
+        const highlights = document.querySelectorAll('.search-highlight');
+        console.log('Navigating to match', index, 'of', highlights.length);
+        
+        if (highlights.length === 0) return;
+        
+        // Remove current highlight
+        highlights.forEach(el => el.classList.remove('current-match'));
+        
+        // Add current highlight and scroll to it
+        if (index >= 0 && index < highlights.length) {
+            const highlight = highlights[index];
+            highlight.classList.add('current-match');
+            
+            // Get the content container
+            const content = document.getElementById('caddy-config-content');
+            if (content) {
+                // Calculate position of the highlight relative to the content container
+                const contentRect = content.getBoundingClientRect();
+                const highlightRect = highlight.getBoundingClientRect();
+                
+                // Scroll the content container to show the highlight
+                const scrollTop = content.scrollTop + (highlightRect.top - contentRect.top) - (contentRect.height / 2);
+                content.scrollTop = scrollTop;
+            }
+        }
+    }
+    
+    navigateToNextMatch() {
+        if (this.searchMatches.length === 0) return;
+        this.currentMatchIndex = (this.currentMatchIndex + 1) % this.searchMatches.length;
+        this.navigateToMatch(this.currentMatchIndex);
+        this.updateSearchStatus();
+    }
+    
+    navigateToPreviousMatch() {
+        if (this.searchMatches.length === 0) return;
+        this.currentMatchIndex = (this.currentMatchIndex - 1 + this.searchMatches.length) % this.searchMatches.length;
+        this.navigateToMatch(this.currentMatchIndex);
+        this.updateSearchStatus();
+    }
+    
+    updateSearchStatus() {
+        const searchStatus = document.getElementById('caddy-config-search-status');
+        if (this.searchMatches.length > 0) {
+            searchStatus.textContent = `${this.currentMatchIndex + 1} of ${this.searchMatches.length}`;
+        } else {
+            searchStatus.textContent = '';
+        }
+    }
+    
+    clearCaddyConfigSearch() {
+        const searchInput = document.getElementById('caddy-config-search');
+        const searchStatus = document.getElementById('caddy-config-search-status');
+        const content = document.getElementById('caddy-config-content');
+        
+        if (searchInput) searchInput.value = '';
+        if (searchStatus) searchStatus.textContent = '';
+        
+        // Restore original content if available
+        if (this.caddyConfigRawContent && content) {
+            content.textContent = this.caddyConfigRawContent;
+            // Don't apply syntax highlighting here as it interferes with search
+        }
+        
+        this.searchMatches = [];
+        this.currentMatchIndex = -1;
+    }
+    
+    async copyCaddyConfig() {
+        const copyBtn = document.getElementById('caddy-config-copy');
+        const btnText = copyBtn.querySelector('.btn-text');
+        const btnLoading = copyBtn.querySelector('.btn-loading');
+        
+        if (!this.caddyConfigRawContent) {
+            this.showToast('No configuration to copy', 'error');
+            return;
+        }
+        
+        try {
+            await navigator.clipboard.writeText(this.caddyConfigRawContent);
+            
+            // Show success state
+            btnText.textContent = 'Copied!';
+            copyBtn.classList.add('btn-success');
+            
+            setTimeout(() => {
+                btnText.textContent = 'Copy';
+                copyBtn.classList.remove('btn-success');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Failed to copy:', error);
+            this.showToast('Failed to copy to clipboard', 'error');
+        }
+    }
+    
+    downloadCaddyConfig() {
+        if (!this.caddyConfigRawContent) {
+            this.showToast('No configuration to download', 'error');
+            return;
+        }
+        
+        const blob = new Blob([this.caddyConfigRawContent], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `caddy-config-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     // Static Routes Tab

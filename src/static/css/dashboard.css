@@ -884,6 +884,11 @@ footer a:hover {
     background: #dc2626;
 }
 
+.btn-success {
+    background: #10b981 !important;
+    color: white;
+}
+
 .btn-small {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -1217,6 +1222,21 @@ footer a:hover {
 
 .hosts-help li {
     margin-bottom: 0.5rem;
+}
+
+/* Search highlight styles */
+.search-highlight {
+    background-color: #fbbf24 !important;
+    color: #000 !important;
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: bold;
+}
+
+.search-highlight.current-match {
+    background-color: #f97316 !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 2px #f97316;
 }
 
 /* Host status badges */

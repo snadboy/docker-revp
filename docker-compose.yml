@@ -117,7 +117,7 @@ services:
     restart: unless-stopped
     
   # GoAccess log analyzer
-  goaccess:
+  goaccess: 
     image: allinurl/goaccess:latest
     container_name: goaccess
     labels:
