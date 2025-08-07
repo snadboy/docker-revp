@@ -1,3 +1,10 @@
+## [3.9.1](https://github.com/snadboy/docker-revp/compare/v3.9.0...v3.9.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* resolve undefined URL SSL protocol errors and route priority issues ([fa89280](https://github.com/snadboy/docker-revp/commit/fa8928015d45823e07bd0061ff178599e293c80e))
+
 # [3.9.0](https://github.com/snadboy/docker-revp/compare/v3.8.0...v3.9.0) (2025-08-01)
 
 
