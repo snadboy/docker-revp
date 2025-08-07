@@ -30,6 +30,8 @@ class CaddyManager:
             caddy_logger.error(f"Failed to connect to Caddy Admin API: {e}")
             raise
         
+        # Note: Catch-all routes can be added manually if needed via ensure_catchall_route()
+        
         # Note: Cleanup will be called later by DockerMonitor after initialization
     
     async def stop(self) -> None:
@@ -216,6 +218,68 @@ class CaddyManager:
                 
         except Exception as e:
             caddy_logger.error(f"Error during static route cleanup: {e}")
+    
+    async def ensure_catchall_route(self) -> None:
+        """Ensure a catch-all route exists for undefined domains."""
+        try:
+            caddy_logger.info("Ensuring catch-all route exists for undefined domains")
+            
+            # Create catch-all route configuration
+            catchall_config = {
+                "@id": "revp_catchall_route",
+                "match": [{
+                    "host": ["*.snadboy.com"]
+                }],
+                "handle": [{
+                    "handler": "file_server",
+                    "root": "/var/www/error_pages",
+                    "index_names": ["404.html"]
+                }],
+                "terminal": False  # Lower priority than specific routes
+            }
+            
+            # Check if catch-all route already exists
+            routes_response = await self.client.get(f"{self.api_url}/config/apps/http/servers/srv0/routes")
+            if routes_response.status_code != 200:
+                caddy_logger.warning("Could not get current routes for catch-all setup")
+                return
+            
+            routes = routes_response.json()
+            if routes is None:
+                routes = []
+            
+            # Look for existing catch-all route
+            catchall_index = None
+            for i, route in enumerate(routes):
+                if route.get("@id") == "revp_catchall_route":
+                    catchall_index = i
+                    break
+            
+            if catchall_index is not None:
+                # Update existing catch-all route
+                response = await self.client.put(
+                    f"{self.api_url}/config/apps/http/servers/srv0/routes/{catchall_index}",
+                    json=catchall_config,
+                    headers={"Content-Type": "application/json"}
+                )
+                if response.status_code in [200, 201]:
+                    caddy_logger.info("Successfully updated catch-all route")
+                else:
+                    caddy_logger.warning(f"Failed to update catch-all route: {response.status_code}")
+            else:
+                # Add new catch-all route at the end (lowest priority)
+                response = await self.client.post(
+                    f"{self.api_url}/config/apps/http/servers/srv0/routes",
+                    json=catchall_config,
+                    headers={"Content-Type": "application/json"}
+                )
+                if response.status_code in [200, 201]:
+                    caddy_logger.info("Successfully added catch-all route")
+                else:
+                    caddy_logger.warning(f"Failed to add catch-all route: {response.status_code}")
+                    
+        except Exception as e:
+            caddy_logger.error(f"Error ensuring catch-all route: {e}")
 
     async def update_static_routes(self, static_routes: list) -> None:
         """Update all static routes based on configuration."""

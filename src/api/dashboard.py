@@ -623,3 +623,92 @@ async def get_caddy_config(request: Request) -> Dict[str, Any]:
             "config": None,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+
+@router.get("/api/missing-subdomains")
+async def get_missing_subdomains() -> Dict[str, Any]:
+    """Get statistics about missing subdomain requests."""
+    api_logger.info("Missing subdomains statistics requested")
+    
+    try:
+        import re
+        from pathlib import Path
+        from collections import defaultdict, Counter
+        
+        log_file = Path("/var/log/caddy/missing_subdomains.log")
+        if not log_file.exists():
+            return {
+                "success": True,
+                "message": "No missing subdomain requests logged yet",
+                "requests": [],
+                "summary": {
+                    "total_requests": 0,
+                    "unique_subdomains": 0,
+                    "top_subdomains": [],
+                    "recent_requests": []
+                }
+            }
+        
+        # Parse the last 1000 lines of the log file
+        missing_requests = []
+        subdomain_counts = Counter()
+        
+        try:
+            with open(log_file, 'r') as f:
+                lines = f.readlines()
+                # Get last 1000 lines
+                recent_lines = lines[-1000:] if len(lines) > 1000 else lines
+                
+                for line in recent_lines:
+                    try:
+                        log_entry = json.loads(line.strip())
+                        host = log_entry.get('request', {}).get('host', '')
+                        timestamp = log_entry.get('ts', '')
+                        method = log_entry.get('request', {}).get('method', '')
+                        uri = log_entry.get('request', {}).get('uri', '')
+                        status = log_entry.get('status', 0)
+                        
+                        if host and host.endswith('.snadboy.com'):
+                            subdomain = host.split('.')[0]
+                            subdomain_counts[subdomain] += 1
+                            
+                            missing_requests.append({
+                                "subdomain": subdomain,
+                                "full_host": host,
+                                "timestamp": timestamp,
+                                "method": method,
+                                "uri": uri,
+                                "status": status
+                            })
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+        except Exception as e:
+            api_logger.warning(f"Error parsing missing subdomains log: {e}")
+        
+        # Sort by timestamp (most recent first)
+        missing_requests.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        return {
+            "success": True,
+            "requests": missing_requests[:100],  # Return last 100 requests
+            "summary": {
+                "total_requests": len(missing_requests),
+                "unique_subdomains": len(subdomain_counts),
+                "top_subdomains": subdomain_counts.most_common(10),
+                "recent_requests": missing_requests[:10]
+            }
+        }
+        
+    except Exception as e:
+        api_logger.error(f"Error retrieving missing subdomains statistics: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "requests": [],
+            "summary": {
+                "total_requests": 0,
+                "unique_subdomains": 0,
+                "top_subdomains": [],
+                "recent_requests": []
+            }
+        }

@@ -64,6 +64,7 @@ services:
       - /home/snadboy/docker/docker-revp/caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./caddy/data:/data
       - ./caddy/config:/config
+      - ./caddy/error_pages:/var/www/error_pages:ro
     restart: unless-stopped
 
     # Example service 1: Whoami

@@ -3,6 +3,7 @@ import asyncio
 import signal
 import sys
 from typing import Optional
+from pathlib import Path
 
 import uvicorn
 
@@ -13,6 +14,7 @@ from .docker_monitor import DockerMonitor
 from .caddy_manager import CaddyManager
 from .static_routes import StaticRoutesManager
 from .api.app import create_app
+from .hosts_config import validate_and_report_hosts
 
 
 class DockerMonitorService:
@@ -34,6 +36,26 @@ class DockerMonitorService:
             # Validate configuration
             settings.validate()
             main_logger.info("Configuration validated successfully")
+            
+            # Validate hosts configuration
+            hosts_config_file = Path("/app/config/hosts.yml")
+            if hosts_config_file.exists():
+                main_logger.info("Validating hosts configuration...")
+                success, report = validate_and_report_hosts(hosts_config_file, check_dns=True)
+                
+                if not success:
+                    main_logger.error(f"Hosts configuration validation failed with {len(report['errors'])} errors")
+                    for error in report['errors']:
+                        main_logger.error(f"  - {error}")
+                    # Don't fail startup, but warn about issues
+                    main_logger.warning("Continuing with hosts configuration despite errors - some hosts may not be accessible")
+                else:
+                    main_logger.info(f"Hosts configuration validated successfully: {report['enabled_hosts']} enabled hosts")
+                
+                # Log warnings if any
+                if report['warnings']:
+                    for warning in report['warnings']:
+                        main_logger.warning(f"Host configuration warning: {warning}")
             
             # SSH configuration is now handled by SSH Docker Client library
             main_logger.info("SSH configuration will be handled by SSH Docker Client")

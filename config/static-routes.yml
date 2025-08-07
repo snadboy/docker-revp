@@ -39,12 +39,6 @@ static_routes:
   force_ssl: false
   support_websocket: false
   tls_insecure_skip_verify: false
-- domain: think-plex.snadboy.com
-  backend_url: http://think-plex:32400
-  backend_path: /
-  force_ssl: true
-  support_websocket: false
-  tls_insecure_skip_verify: false
 - domain: plex.snadboy.com
   backend_url: https://plex:32400
   backend_path: /
