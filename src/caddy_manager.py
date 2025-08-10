@@ -30,6 +30,9 @@ class CaddyManager:
             caddy_logger.error(f"Failed to connect to Caddy Admin API: {e}")
             raise
         
+        # Ensure Caddy is listening on both HTTP and HTTPS ports
+        await self.ensure_http_https_listeners()
+        
         # Note: Catch-all routes can be added manually if needed via ensure_catchall_route()
         
         # Note: Cleanup will be called later by DockerMonitor after initialization
@@ -47,6 +50,55 @@ class CaddyManager:
             caddy_logger.error(f"Caddy connection test failed: {e}")
             return False
     
+    async def ensure_http_https_listeners(self) -> None:
+        """Ensure Caddy is listening on both HTTP (80) and HTTPS (443) ports."""
+        try:
+            caddy_logger.info("Ensuring Caddy listens on both HTTP and HTTPS ports")
+            
+            # Get current server configuration
+            response = await self.client.get(f"{self.api_url}/config/apps/http/servers/srv0")
+            if response.status_code != 200:
+                # Server doesn't exist, create it with both listeners
+                server_config = {
+                    "listen": [":80", ":443"],
+                    "routes": []
+                }
+                create_response = await self.client.put(
+                    f"{self.api_url}/config/apps/http/servers/srv0",
+                    json=server_config,
+                    headers={"Content-Type": "application/json"}
+                )
+                if create_response.status_code in [200, 201]:
+                    caddy_logger.info("Created server with HTTP and HTTPS listeners")
+                else:
+                    caddy_logger.warning(f"Failed to create server: {create_response.status_code}")
+            else:
+                # Server exists, check if it has both listeners
+                server_config = response.json()
+                current_listen = server_config.get("listen", [])
+                
+                # Check if both ports are configured
+                has_http = any(":80" in l for l in current_listen)
+                has_https = any(":443" in l for l in current_listen)
+                
+                if not has_http or not has_https:
+                    # Update to include both ports
+                    server_config["listen"] = [":80", ":443"]
+                    update_response = await self.client.patch(
+                        f"{self.api_url}/config/apps/http/servers/srv0",
+                        json={"listen": [":80", ":443"]},
+                        headers={"Content-Type": "application/json"}
+                    )
+                    if update_response.status_code in [200, 201]:
+                        caddy_logger.info(f"Updated server to listen on both HTTP and HTTPS (was: {current_listen})")
+                    else:
+                        caddy_logger.warning(f"Failed to update server listeners: {update_response.status_code}")
+                else:
+                    caddy_logger.info("Server already configured to listen on both HTTP and HTTPS")
+                    
+        except Exception as e:
+            caddy_logger.error(f"Error ensuring HTTP/HTTPS listeners: {e}")
+    
     async def add_route(self, container: ContainerInfo, service: 'ServiceInfo') -> None:
         """Add or update a route in Caddy."""
         if not service.is_valid:
@@ -62,7 +114,11 @@ class CaddyManager:
         try:
             # Check if another container is using this domain
             existing_container_id = self._routes.get(service.domain)
-            if existing_container_id and existing_container_id != f"{container.container_id}_{service.port}":
+            expected_route_id = f"{container.container_id}_{service.port}"
+            if getattr(service, 'is_tunnel_domain', False):
+                expected_route_id += "_tunnel"
+            
+            if existing_container_id and existing_container_id != expected_route_id:
                 caddy_logger.warning(
                     f"Domain {service.domain} already in use by {existing_container_id}, replacing with {container.container_id[:12]}:{service.port}"
                 )
@@ -70,11 +126,26 @@ class CaddyManager:
             # Create the route configuration
             route_config = self._create_route_config(container, service)
             
-            # Apply configuration to Caddy
-            await self._apply_route(service.domain, route_config)
+            # Apply configuration to Caddy (HTTPS route to srv0)
+            await self._apply_route(service.domain, route_config, server="srv0")
+            
+            # If force_ssl is enabled AND not using cloudflare_tunnel, add HTTP redirect route to srv1
+            # Skip redirect for cloudflare_tunnel as Cloudflare handles SSL termination
+            if service.force_ssl and not getattr(service, 'cloudflare_tunnel', False):
+                redirect_config = self._create_http_redirect_config(service.domain, container.container_id, service.port)
+                await self._apply_route(service.domain, redirect_config, server="srv1")
+                caddy_logger.info(f"Added HTTP to HTTPS redirect for {service.domain} on srv1")
+            elif getattr(service, 'cloudflare_tunnel', False):
+                # For cloudflare_tunnel routes, add HTTP route directly to srv1 without redirect
+                await self._apply_route(service.domain, route_config, server="srv1")
+                caddy_logger.info(f"Added HTTP route for cloudflare_tunnel {service.domain} on srv1")
             
             # Track the route (use container_id:port as unique identifier)
-            self._routes[service.domain] = f"{container.container_id}_{service.port}"
+            # For tunnel domains, add _tunnel suffix to distinguish from primary routes
+            if getattr(service, 'is_tunnel_domain', False):
+                self._routes[service.domain] = f"{container.container_id}_{service.port}_tunnel"
+            else:
+                self._routes[service.domain] = f"{container.container_id}_{service.port}"
             
             caddy_logger.info(f"Successfully added route for {service.domain}")
             
@@ -94,6 +165,9 @@ class CaddyManager:
             try:
                 # Check if this container owns the route
                 expected_route_owner = f"{container.container_id}_{service.port}"
+                if getattr(service, 'is_tunnel_domain', False):
+                    expected_route_owner += "_tunnel"
+                    
                 if self._routes.get(service.domain) != expected_route_owner:
                     caddy_logger.warning(
                         f"Container {container.container_id[:12]}:{service.port} does not own domain "
@@ -101,8 +175,12 @@ class CaddyManager:
                     )
                     continue
                 
-                # Remove from Caddy
-                await self._remove_route(service.domain)
+                # Remove the HTTPS route from srv0
+                await self._remove_route(service.domain, container.container_id, service.port, server="srv0")
+                
+                # Also remove HTTP redirect if it exists (srv1)
+                if service.force_ssl:
+                    await self._remove_route(service.domain, container.container_id, service.port, server="srv1", is_redirect=True)
                 
                 # Remove from tracking
                 self._routes.pop(service.domain, None)
@@ -135,8 +213,31 @@ class CaddyManager:
             # Create the route configuration
             route_config = self._create_static_route_config(service)
             
-            # Apply configuration to Caddy
-            await self._apply_route(service.domain, route_config)
+            # Apply configuration to Caddy (HTTPS route to srv0)
+            await self._apply_route(service.domain, route_config, server="srv0")
+            
+            # If force_ssl is enabled AND not using cloudflare_tunnel, add HTTP redirect route to srv1
+            # Skip redirect for cloudflare_tunnel as Cloudflare handles SSL termination
+            if service.force_ssl and not getattr(service, 'cloudflare_tunnel', False):
+                redirect_config = {
+                    "@id": f"revp_static_http_redirect_{service.domain.replace('.', '_')}",
+                    "match": [{"host": [service.domain]}],
+                    "handle": [{
+                        "handler": "static_response",
+                        "headers": {
+                            "Location": ["https://{http.request.host}{http.request.uri}"]
+                        },
+                        "status_code": 308
+                    }],
+                    "terminal": True
+                }
+                await self._apply_route(service.domain, redirect_config, server="srv1")
+                caddy_logger.info(f"Added HTTP to HTTPS redirect for static route {service.domain} on srv1")
+            elif getattr(service, 'cloudflare_tunnel', False):
+                # For cloudflare_tunnel routes, add HTTP route directly to srv1 without redirect
+                route_config = self._create_static_route_config(service)
+                await self._apply_route(service.domain, route_config, server="srv1")
+                caddy_logger.info(f"Added HTTP route for cloudflare_tunnel static route {service.domain} on srv1")
             
             # Track the route with static prefix
             self._routes[service.domain] = f"static_{service.domain}"
@@ -294,20 +395,7 @@ class CaddyManager:
             await self.add_static_route(service)
     
     def _create_static_route_config(self, service: ServiceInfo) -> dict:
-        """Create Caddy route configuration for a static service."""
-        # Build handlers list
-        handlers = []
-        
-        # Force SSL handler for HTTP requests (if enabled)
-        if service.force_ssl:
-            handlers.append({
-                "handler": "static_response",
-                "headers": {
-                    "Location": ["https://{http.request.host}{http.request.uri}"]
-                },
-                "status_code": 308
-            })
-        
+        """Create Caddy route configuration for a static service (HTTPS only now)."""
         # Reverse proxy handler
         # For static routes, extract host:port from backend_url, ignore path
         backend_dial = service._static_backend_url.replace("http://", "").replace("https://", "")
@@ -341,71 +429,75 @@ class CaddyManager:
                 "uri": backend_path + "{http.request.uri}"
             }
         
-        # WebSocket support
-        if service.support_websocket:
-            reverse_proxy_handler["headers"] = {
-                "request": {
-                    "set": {
-                        "Connection": ["{http.request.header.Connection}"],
-                        "Upgrade": ["{http.request.header.Upgrade}"]
-                    }
-                }
+        # Configure headers for proper forwarding
+        headers_config = {
+            "request": {
+                "set": {}
             }
+        }
         
-        handlers.append(reverse_proxy_handler)
+        # Check if Cloudflare tunnel is being used
+        if hasattr(service, 'cloudflare_tunnel') and service.cloudflare_tunnel:
+            # Use Cloudflare-specific headers for accurate client IP and protocol
+            headers_config["request"]["set"]["X-Forwarded-Proto"] = ["https"]
+            headers_config["request"]["set"]["X-Real-IP"] = ["{http.request.header.CF-Connecting-IP}"]
+            headers_config["request"]["set"]["X-Forwarded-For"] = ["{http.request.header.CF-Connecting-IP}"]
+            headers_config["request"]["set"]["X-Forwarded-Host"] = ["{http.request.host}"]
+            caddy_logger.info(f"Cloudflare tunnel headers enabled for {service.domain}")
+        else:
+            # Standard X-Forwarded headers for direct connections
+            headers_config["request"]["set"]["X-Forwarded-For"] = ["{http.request.header.X-Forwarded-For}, {http.request.remote.host}"]
+            headers_config["request"]["set"]["X-Forwarded-Proto"] = ["{http.request.scheme}"]
+            headers_config["request"]["set"]["X-Forwarded-Host"] = ["{http.request.host}"]
+            headers_config["request"]["set"]["X-Real-IP"] = ["{http.request.remote.host}"]
         
-        # Create route configuration with unique ID
+        # WebSocket support - add Connection and Upgrade headers
+        if service.support_websocket:
+            headers_config["request"]["set"]["Connection"] = ["{http.request.header.Connection}"]
+            headers_config["request"]["set"]["Upgrade"] = ["{http.request.header.Upgrade}"]
+        
+        # Special handling for Home Assistant
+        if service.domain == "ha.snadboy.com":
+            # Home Assistant requires specific header handling
+            headers_config["request"]["set"]["Host"] = ["{http.request.host}"]
+        
+        reverse_proxy_handler["headers"] = headers_config
+        
+        # Create route configuration with unique ID (HTTPS only)
         route_id = f"revp_static_route_{service.domain.replace('.', '_')}"
         
         # Build the route configuration
         config = {
             "@id": route_id,
             "match": [{"host": [service.domain]}],
-            "handle": handlers if len(handlers) > 1 else [handlers[0]]
+            "handle": [reverse_proxy_handler],
+            "terminal": True
         }
-        
-        # If force_ssl is true and we have multiple handlers, use subroute for conditional handling
-        if service.force_ssl and len(handlers) > 1:
-            config["handle"] = [{
-                "handler": "subroute",
-                "routes": [
-                    {
-                        "match": [{"protocol": "http"}],
-                        "handle": [handlers[0]],  # Redirect handler
-                        "terminal": True
-                    },
-                    {
-                        "match": [{"protocol": "https"}],
-                        "handle": [handlers[1]],  # Reverse proxy handler
-                        "terminal": True
-                    }
-                ]
-            }]
-            config["terminal"] = True
         
         return config
     
-    def _create_route_config(self, container: ContainerInfo, service: 'ServiceInfo') -> dict:
-        """Create Caddy route configuration for a service."""
-        # Basic reverse proxy configuration
-        # Use resolved_host_port if available, otherwise fall back to service port
-        backend_port = service.resolved_host_port if service.resolved_host_port else service.port
-        
-        # Build handlers list
-        handlers = []
-        
-        # If force_ssl is true, add HTTPS redirect for HTTP requests
-        if service.force_ssl:
-            # Add a handler that redirects HTTP to HTTPS
-            handlers.append({
+    def _create_http_redirect_config(self, domain: str, container_id: str, port: str) -> dict:
+        """Create HTTP to HTTPS redirect configuration."""
+        return {
+            "@id": f"revp_http_redirect_{container_id}_{port}",
+            "match": [{"host": [domain]}],
+            "handle": [{
                 "handler": "static_response",
                 "headers": {
                     "Location": ["https://{http.request.host}{http.request.uri}"]
                 },
                 "status_code": 308
-            })
+            }],
+            "terminal": True
+        }
+    
+    def _create_route_config(self, container: ContainerInfo, service: 'ServiceInfo') -> dict:
+        """Create Caddy route configuration for a service (HTTPS only now)."""
+        # Basic reverse proxy configuration
+        # Use resolved_host_port if available, otherwise fall back to service port
+        backend_port = service.resolved_host_port if service.resolved_host_port else service.port
         
-        # Add the reverse proxy handler
+        # Create the reverse proxy handler directly
         reverse_proxy_handler = {
             "handler": "reverse_proxy",
             "upstreams": [{
@@ -417,16 +509,34 @@ class CaddyManager:
             }
         }
         
+        # Configure headers for proper forwarding
+        headers_config = {
+            "request": {
+                "set": {}
+            }
+        }
+        
+        # Check if Cloudflare tunnel is being used
+        if hasattr(service, 'cloudflare_tunnel') and service.cloudflare_tunnel:
+            # Use Cloudflare-specific headers for accurate client IP and protocol
+            headers_config["request"]["set"]["X-Forwarded-Proto"] = ["https"]
+            headers_config["request"]["set"]["X-Real-IP"] = ["{http.request.header.CF-Connecting-IP}"]
+            headers_config["request"]["set"]["X-Forwarded-For"] = ["{http.request.header.CF-Connecting-IP}"]
+            headers_config["request"]["set"]["X-Forwarded-Host"] = ["{http.request.host}"]
+            caddy_logger.info(f"Cloudflare tunnel headers enabled for {service.domain}")
+        else:
+            # Standard X-Forwarded headers for direct connections
+            headers_config["request"]["set"]["X-Forwarded-For"] = ["{http.request.header.X-Forwarded-For}, {http.request.remote.host}"]
+            headers_config["request"]["set"]["X-Forwarded-Proto"] = ["{http.request.scheme}"]
+            headers_config["request"]["set"]["X-Forwarded-Host"] = ["{http.request.host}"]
+            headers_config["request"]["set"]["X-Real-IP"] = ["{http.request.remote.host}"]
+        
         # Add websocket support if enabled
         if service.support_websocket:
-            reverse_proxy_handler["headers"] = {
-                "request": {
-                    "set": {
-                        "Connection": ["{http.request.header.Connection}"],
-                        "Upgrade": ["{http.request.header.Upgrade}"]
-                    }
-                }
-            }
+            headers_config["request"]["set"]["Connection"] = ["{http.request.header.Connection}"]
+            headers_config["request"]["set"]["Upgrade"] = ["{http.request.header.Upgrade}"]
+        
+        reverse_proxy_handler["headers"] = headers_config
         
         # Remove None values
         if reverse_proxy_handler["transport"]["tls"] is None:
@@ -438,37 +548,17 @@ class CaddyManager:
                 "strip_path_prefix": service.backend_path.rstrip('/')
             }
         
-        handlers.append(reverse_proxy_handler)
-        
-        # Build the route configuration
+        # Build the route configuration (HTTPS only)
         config = {
             "@id": f"revp_route_{container.container_id}_{service.port}",
             "match": [{"host": [service.domain]}],
-            "handle": handlers if len(handlers) > 1 else [handlers[0]]
+            "handle": [reverse_proxy_handler],
+            "terminal": True
         }
-        
-        # If force_ssl is true, we need to make sure HTTPS redirect only happens on HTTP
-        if service.force_ssl and len(handlers) > 1:
-            # Create two routes: one for HTTP (redirect) and one for HTTPS (proxy)
-            # This requires returning a list of routes, which current code doesn't support
-            # So instead, we'll use a subroute with conditional handling
-            config["handle"] = [{
-                "handler": "subroute",
-                "routes": [
-                    {
-                        "match": [{"protocol": "http"}],
-                        "handle": [handlers[0]]  # Redirect handler
-                    },
-                    {
-                        "match": [{"protocol": "https"}],
-                        "handle": [handlers[1]]  # Reverse proxy handler
-                    }
-                ]
-            }]
         
         return config
     
-    async def _apply_route(self, domain: str, route_config: dict) -> None:
+    async def _apply_route(self, domain: str, route_config: dict, server: str = "srv0") -> None:
         """Apply a route configuration to Caddy."""
         route_id = route_config.get("@id")
         if not route_id:
@@ -479,13 +569,13 @@ class CaddyManager:
         
         # Check if routes array exists, if not initialize it
         routes_response = await self.client.get(
-            f"{self.api_url}/config/apps/http/servers/srv0/routes"
+            f"{self.api_url}/config/apps/http/servers/{server}/routes"
         )
         
         if routes_response.status_code == 200 and routes_response.json() is None:
             # Initialize empty routes array if it doesn't exist
             init_response = await self.client.put(
-                f"{self.api_url}/config/apps/http/servers/srv0/routes",
+                f"{self.api_url}/config/apps/http/servers/{server}/routes",
                 json=[],
                 headers={"Content-Type": "application/json"}
             )
@@ -496,7 +586,7 @@ class CaddyManager:
         
         # Add the new route to the routes array
         response = await self.client.post(
-            f"{self.api_url}/config/apps/http/servers/srv0/routes",
+            f"{self.api_url}/config/apps/http/servers/{server}/routes",
             json=route_config,
             headers={"Content-Type": "application/json"}
         )
@@ -506,18 +596,17 @@ class CaddyManager:
                 f"Failed to apply route: {response.status_code} - {response.text}"
             )
     
-    async def _remove_route(self, domain: str) -> None:
+    async def _remove_route(self, domain: str, container_id: str, port: str, server: str = "srv0", is_redirect: bool = False) -> None:
         """Remove a route configuration from Caddy."""
-        # Get the container_id_port for this domain
-        container_id_port = self._routes.get(domain, "")
-        if not container_id_port:
-            return  # No route to remove
-        
-        route_id = f"revp_route_{container_id_port}"
+        # Construct the route ID based on whether it's a redirect or main route
+        if is_redirect:
+            route_id = f"revp_http_redirect_{container_id}_{port}"
+        else:
+            route_id = f"revp_route_{container_id}_{port}"
         
         # Get existing routes to find the index
         try:
-            routes_response = await self.client.get(f"{self.api_url}/config/apps/http/servers/srv0/routes")
+            routes_response = await self.client.get(f"{self.api_url}/config/apps/http/servers/{server}/routes")
             if routes_response.status_code != 200:
                 return  # No routes to remove
             
@@ -533,7 +622,7 @@ class CaddyManager:
             if route_index is not None:
                 # Remove the route by index
                 response = await self.client.delete(
-                    f"{self.api_url}/config/apps/http/servers/srv0/routes/{route_index}"
+                    f"{self.api_url}/config/apps/http/servers/{server}/routes/{route_index}"
                 )
                 
                 if response.status_code not in [200, 204]:
@@ -543,7 +632,7 @@ class CaddyManager:
                     
         except Exception as e:
             # If remove fails, just log it - don't prevent other operations
-            caddy_logger.warning(f"Failed to remove route for {domain}: {e}")
+            caddy_logger.warning(f"Failed to remove route for {domain} on {server}: {e}")
     
     async def _route_exists(self, route_id: str) -> bool:
         """Check if a route with the given ID already exists."""

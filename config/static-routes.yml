@@ -45,3 +45,9 @@ static_routes:
   force_ssl: true
   support_websocket: false
   tls_insecure_skip_verify: false
+- domain: ha.snadboy.com
+  backend_url: http://homeassistant:8123
+  backend_path: /
+  force_ssl: true
+  support_websocket: true
+  tls_insecure_skip_verify: false

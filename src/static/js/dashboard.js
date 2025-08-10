@@ -620,9 +620,23 @@ class Dashboard {
                 domain = firstService.domain || '-';
                 backend = firstService.backend_url || '-';
                 
+                // Add tunnel domain indicator if this is a tunnel domain
+                if (firstService.is_tunnel_domain) {
+                    domain += ' 🌐';
+                }
+                
                 // If multiple services, indicate that
                 if (container.services.length > 1) {
-                    domain += ` (+${container.services.length - 1} more)`;
+                    // Count tunnel domains
+                    const tunnelCount = container.services.filter(s => s.is_tunnel_domain).length;
+                    const normalCount = container.services.length - tunnelCount;
+                    
+                    domain += ` (+${container.services.length - 1} more`;
+                    if (tunnelCount > 1 || (tunnelCount > 0 && !firstService.is_tunnel_domain)) {
+                        domain += `, ${tunnelCount} tunnel`;
+                    }
+                    domain += ')';
+                    
                     backend += ` (+${container.services.length - 1} more)`;
                 }
             }
@@ -743,7 +757,21 @@ class Dashboard {
                         <span class="label-key">WebSocket Support:</span>
                         <span class="label-value">${service.support_websocket ? 'Yes' : 'No'}</span>
                     </div>
+                    <div class="label-item">
+                        <span class="label-key">Cloudflare Tunnel:</span>
+                        <span class="label-value">${service.cloudflare_tunnel ? 'Yes' : 'No'}</span>
+                    </div>
                 `;
+
+                // Show if this is a tunnel domain
+                if (service.is_tunnel_domain) {
+                    labelsHtml += `
+                        <div class="label-item" style="color: var(--accent-color);">
+                            <span class="label-key">🌐 Service Type:</span>
+                            <span class="label-value">Tunnel Domain (Auto-configured for Cloudflare)</span>
+                        </div>
+                    `;
+                }
                 
                 // Show warning if port is not published
                 if (!service.resolved_host_port) {

@@ -27,6 +27,7 @@ class StaticRoute(BaseModel):
     force_ssl: bool = True
     support_websocket: bool = False
     tls_insecure_skip_verify: bool = False
+    cloudflare_tunnel: bool = False
     
     @field_validator('domain')
     def validate_domain(cls, v):
