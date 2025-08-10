@@ -3,6 +3,13 @@
 
 ### Features
 
+* implement dynamic tunnel domain support for Cloudflare tunnels ([b0df32c](https://github.com/snadboy/docker-revp/commit/b0df32c80a89d550f447cca0451efdd67d5f25d9))
+
+# [3.10.0](https://github.com/snadboy/docker-revp/compare/v3.9.1...v3.10.0) (2025-08-10)
+
+
+### Features
+
 * implement dynamic tunnel domain support for Cloudflare tunnels ([00685dd](https://github.com/snadboy/docker-revp/commit/00685dd)) 
   - New tunnel-domain container label creates dual routes automatically
   - Primary domain: HTTPS with redirect (local access)
