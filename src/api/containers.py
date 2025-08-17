@@ -139,8 +139,7 @@ async def list_containers(
                             "backend_path": service.backend_path,
                             "force_ssl": service.force_ssl,
                             "support_websocket": service.support_websocket,
-                            "cloudflare_tunnel": service.cloudflare_tunnel,
-                            "is_tunnel_domain": getattr(service, 'is_tunnel_domain', False)
+                            "cloudflare_tunnel": service.cloudflare_tunnel
                         })
                 
                 # Create container info dictionary

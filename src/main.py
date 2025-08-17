@@ -15,13 +15,14 @@ from .caddy_manager import CaddyManager
 from .static_routes import StaticRoutesManager
 from .api.app import create_app
 from .hosts_config import validate_and_report_hosts
+from .ssh_config import SSHConfigManager
 
 
 class DockerMonitorService:
     """Main service orchestrator."""
     
     def __init__(self):
-        # SSH manager removed - handled by SSH Docker Client library
+        self.ssh_manager: Optional[SSHConfigManager] = None
         self.docker_monitor: Optional[DockerMonitor] = None
         self.caddy_manager: Optional[CaddyManager] = None
         self.static_routes_manager: Optional[StaticRoutesManager] = None
@@ -62,16 +63,29 @@ class DockerMonitorService:
             
             # Initialize Caddy manager
             main_logger.info("Initializing Caddy manager")
-            self.caddy_manager = CaddyManager()
-            await self.caddy_manager.start()
+            try:
+                self.caddy_manager = CaddyManager()
+                await self.caddy_manager.start()
+            except Exception as e:
+                main_logger.error(f"Failed to initialize Caddy manager: {e}")
+                main_logger.warning("RevP will continue but routes cannot be managed until Caddy is accessible")
+                # Create a dummy Caddy manager to prevent null reference errors
+                self.caddy_manager = None
             
             # Initialize static routes manager
             main_logger.info("Initializing static routes manager")
             self.static_routes_manager = StaticRoutesManager(settings.static_routes_file)
-            static_routes = self.static_routes_manager.get_routes()
-            if static_routes:
-                main_logger.info(f"Loading {len(static_routes)} static routes into Caddy")
-                await self.caddy_manager.update_static_routes(static_routes)
+            
+            try:
+                static_routes = self.static_routes_manager.get_routes()
+                if static_routes and self.caddy_manager:
+                    main_logger.info(f"Loading {len(static_routes)} static routes into Caddy")
+                    await self.caddy_manager.update_static_routes(static_routes)
+                elif static_routes and not self.caddy_manager:
+                    main_logger.warning(f"Cannot load {len(static_routes)} static routes - Caddy manager not available")
+            except Exception as e:
+                main_logger.error(f"Failed to load static routes: {e}")
+                main_logger.warning("Continuing without static routes - they can be loaded later via dashboard")
             
             # Start file watching for static routes
             self.static_routes_manager.start_watching(self._on_static_routes_changed)
@@ -81,11 +95,14 @@ class DockerMonitorService:
             self.docker_monitor = DockerMonitor(caddy_manager=self.caddy_manager)
             await self.docker_monitor.start()
             
+            # Initialize SSH manager for connection testing
+            self.ssh_manager = SSHConfigManager()
+            
             # Create FastAPI app
             self.app = create_app(
                 docker_monitor=self.docker_monitor,
                 caddy_manager=self.caddy_manager,
-                ssh_manager=None,  # SSH manager removed
+                ssh_manager=self.ssh_manager,
                 static_routes_manager=self.static_routes_manager
             )
             

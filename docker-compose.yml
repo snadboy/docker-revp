@@ -3,7 +3,7 @@ services:
     build: .
     container_name: docker-revp
     labels:
-      - "snadboy.revp.8080.domain=revp.snadboy.com"
+      - "snadboy.revp.8080.domain=revp.snadboy.internal"
       - "snadboy.revp.8080.backend-proto=http"
       - "snadboy.revp.8080.backend-path=/"
       - "snadboy.revp.8080.force-ssl=true" # Force SSL for the API
@@ -12,7 +12,7 @@ services:
       - "8081:8080"
     environment:
       # Optional configuration (defaults provided)
-      - CADDY_API_URL=${CADDY_API_URL:-http://vm-switchboard.snadboy.com:2019}
+      - CADDY_API_URL=${CADDY_API_URL:-http://192.168.86.32:2019}
       - RECONCILE_INTERVAL=${RECONCILE_INTERVAL:-300}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10}
@@ -42,17 +42,17 @@ services:
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     labels:
       # Caddy admin HTTP access
-      - "snadboy.revp.80.domain=caddy.snadboy.com"
+      - "snadboy.revp.80.domain=caddy.snadboy.internal"
       - "snadboy.revp.80.backend-proto=http"
       - "snadboy.revp.80.backend-path=/"
       - "snadboy.revp.80.force-ssl=true" 
       # Caddy admin HTTPS access
-      - "snadboy.revp.443.domain=caddy-ssl.snadboy.com"
+      - "snadboy.revp.443.domain=caddy-ssl.snadboy.internal"
       - "snadboy.revp.443.backend-proto=http"
       - "snadboy.revp.443.backend-path=/"
       - "snadboy.revp.443.force-ssl=true" 
       # Caddy admin API access
-      - "snadboy.revp.2019.domain=caddy-api.snadboy.com"
+      - "snadboy.revp.2019.domain=caddy-api.snadboy.internal"
       - "snadboy.revp.2019.backend-proto=http"
       - "snadboy.revp.2019.backend-path=/"
       - "snadboy.revp.2019.force-ssl=true" 
@@ -74,7 +74,7 @@ services:
     ports:
       - "8011:80" # Example: maps host port 8011 to container port 80
     labels:
-      - "snadboy.revp.80.domain=whoami11.snadboy.com"
+      - "snadboy.revp.80.domain=whoami11.snadboy.internal"
       - "snadboy.revp.80.backend-proto=http"
       - "snadboy.revp.80.backend-path=/"
       - "snadboy.revp.80.force-ssl=true"
@@ -88,7 +88,7 @@ services:
     ports:
       - "8012:80" # Example: maps host port 8012 to container port 80
     labels:
-      - "snadboy.revp.80.domain=whoami22.snadboy.com"
+      - "snadboy.revp.80.domain=whoami22.snadboy.internal"
       - "snadboy.revp.80.backend-proto=http"
       - "snadboy.revp.80.backend-path=/"
       - "snadboy.revp.80.force-ssl=true"
@@ -103,14 +103,14 @@ services:
       - "8004:8080" # Admin interface
     labels:
       # Main application on port 80
-      - "snadboy.revp.80.domain=app.snadboy.com"
+      - "snadboy.revp.80.domain=app.snadboy.internal"
       - "snadboy.revp.80.backend-proto=http"
       - "snadboy.revp.80.backend-path=/"
       - "snadboy.revp.80.force-ssl=true"
       - "snadboy.revp.80.support-websocket=false"
       
       # Admin interface on port 8080
-      - "snadboy.revp.8080.domain=admin.snadboy.com"
+      - "snadboy.revp.8080.domain=admin.snadboy.internal"
       - "snadboy.revp.8080.backend-proto=http"
       - "snadboy.revp.8080.backend-path=/admin"
       - "snadboy.revp.8080.force-ssl=true"
@@ -122,7 +122,7 @@ services:
     image: allinurl/goaccess:latest
     container_name: goaccess
     labels:
-      - "snadboy.revp.7890.domain=logs.snadboy.com"
+      - "snadboy.revp.7890.domain=logs.snadboy.internal"
       - "snadboy.revp.7890.backend-proto=http"
       - "snadboy.revp.7890.backend-path=/"
       - "snadboy.revp.7890.force-ssl=true"
@@ -140,7 +140,7 @@ services:
       /var/log/caddy/access.log
       -o /srv/data/index.html
       --real-time-html
-      --ws-url=wss://logs.snadboy.com:443
+      --ws-url=wss://logs.snadboy.internal:443
       --port=7890
       --addr=0.0.0.0
       --config-file=/goaccess/goaccess.conf

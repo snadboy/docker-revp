@@ -115,8 +115,6 @@ class CaddyManager:
             # Check if another container is using this domain
             existing_container_id = self._routes.get(service.domain)
             expected_route_id = f"{container.container_id}_{service.port}"
-            if getattr(service, 'is_tunnel_domain', False):
-                expected_route_id += "_tunnel"
             
             if existing_container_id and existing_container_id != expected_route_id:
                 caddy_logger.warning(
@@ -141,11 +139,7 @@ class CaddyManager:
                 caddy_logger.info(f"Added HTTP route for cloudflare_tunnel {service.domain} on srv1")
             
             # Track the route (use container_id:port as unique identifier)
-            # For tunnel domains, add _tunnel suffix to distinguish from primary routes
-            if getattr(service, 'is_tunnel_domain', False):
-                self._routes[service.domain] = f"{container.container_id}_{service.port}_tunnel"
-            else:
-                self._routes[service.domain] = f"{container.container_id}_{service.port}"
+            self._routes[service.domain] = f"{container.container_id}_{service.port}"
             
             caddy_logger.info(f"Successfully added route for {service.domain}")
             
@@ -165,8 +159,6 @@ class CaddyManager:
             try:
                 # Check if this container owns the route
                 expected_route_owner = f"{container.container_id}_{service.port}"
-                if getattr(service, 'is_tunnel_domain', False):
-                    expected_route_owner += "_tunnel"
                     
                 if self._routes.get(service.domain) != expected_route_owner:
                     caddy_logger.warning(
@@ -389,10 +381,20 @@ class CaddyManager:
         # First, clean up all existing static routes to prevent duplicates
         await self.cleanup_static_routes()
         
-        # Add all static routes fresh
+        # Add all static routes fresh, skipping those with DNS failures
+        skipped = 0
         for static_route in static_routes:
+            # Check if DNS validation failed
+            if hasattr(static_route, 'dns_resolved') and static_route.dns_resolved == False:
+                skipped += 1
+                caddy_logger.warning(f"Skipping static route {static_route.domain} due to DNS failure: {static_route.dns_error}")
+                continue
+                
             service = ServiceInfo(static_route=static_route)
             await self.add_static_route(service)
+        
+        if skipped > 0:
+            caddy_logger.warning(f"Skipped {skipped} static routes due to DNS resolution failures")
     
     def _create_static_route_config(self, service: ServiceInfo) -> dict:
         """Create Caddy route configuration for a static service (HTTPS only now)."""

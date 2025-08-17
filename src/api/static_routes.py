@@ -44,6 +44,11 @@ class StaticRouteResponse(BaseModel):
     support_websocket: bool
     tls_insecure_skip_verify: bool
     cloudflare_tunnel: bool
+    # DNS validation status
+    dns_resolved: Optional[bool] = None
+    backend_host: Optional[str] = None
+    backend_ip: Optional[str] = None
+    dns_error: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
@@ -78,7 +83,11 @@ async def list_static_routes(request: Request) -> List[StaticRouteResponse]:
                 force_ssl=route.force_ssl,
                 support_websocket=route.support_websocket,
                 tls_insecure_skip_verify=route.tls_insecure_skip_verify,
-                cloudflare_tunnel=route.cloudflare_tunnel
+                cloudflare_tunnel=route.cloudflare_tunnel,
+                dns_resolved=route.dns_resolved,
+                backend_host=route.backend_host,
+                backend_ip=route.backend_ip,
+                dns_error=route.dns_error
             ))
         
         api_logger.info(f"API: Retrieved {len(routes_response)} static routes")
@@ -379,4 +388,54 @@ async def validate_static_route_data(route_data: StaticRouteCreate, request: Req
         }
     except Exception as e:
         api_logger.error(f"API: Error validating static route: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/recheck-dns", response_model=Dict[str, Any])
+async def recheck_static_routes_dns(request: Request) -> Dict[str, Any]:
+    """
+    Recheck DNS resolution for all static routes.
+    
+    Returns:
+        Summary of DNS recheck results
+    """
+    api_logger.info("API: Rechecking DNS for all static routes")
+    
+    if not request.app.state.static_routes_manager:
+        raise HTTPException(status_code=503, detail="Static routes manager not initialized")
+    
+    try:
+        # Get all routes and perform DNS validation
+        routes = request.app.state.static_routes_manager.get_routes()
+        
+        # Revalidate DNS for each route
+        for route in routes:
+            route.validate_dns()
+        
+        # Save updated routes
+        request.app.state.static_routes_manager.save_routes(routes)
+        
+        # Update Caddy configuration if manager is available
+        if request.app.state.caddy_manager:
+            await request.app.state.caddy_manager.update_static_routes(routes)
+        
+        # Calculate results
+        total_routes = len(routes)
+        working_routes = sum(1 for route in routes if route.dns_resolved is True)
+        dns_issues = sum(1 for route in routes if route.dns_resolved is False)
+        unknown_status = total_routes - working_routes - dns_issues
+        
+        api_logger.info(f"DNS recheck completed: {working_routes} working, {dns_issues} issues, {unknown_status} unknown")
+        
+        return {
+            "status": "completed",
+            "total_routes": total_routes,
+            "working_routes": working_routes,
+            "dns_issues": dns_issues,
+            "unknown_status": unknown_status,
+            "message": f"DNS recheck completed for {total_routes} routes"
+        }
+        
+    except Exception as e:
+        api_logger.error(f"API: Error rechecking static routes DNS: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

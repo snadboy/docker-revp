@@ -16,38 +16,102 @@
 
 static_routes:
 - domain: colossus.snadboy.com
-  backend_url: https://colossus:8006
+  backend_url: https://host.colossus.snadboy.com:8006
   backend_path: /
   force_ssl: true
   support_websocket: true
   tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.colossus.snadboy.com
+  backend_ip: 192.168.86.102
+  dns_error: null
 - domain: guardian.snadboy.com
-  backend_url: https://guardian:8006
+  backend_url: https://host.guardian.snadboy.com:8006
   backend_path: /
   force_ssl: true
   support_websocket: true
   tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.guardian.snadboy.com
+  backend_ip: 192.168.86.96
+  dns_error: null
 - domain: pihole.snadboy.com
-  backend_url: https://dns:443
+  backend_url: https://host.dns.snadboy.com:443
   backend_path: /
   force_ssl: true
   support_websocket: false
   tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: false
+  backend_host: host.dns.snadboy.com
+  backend_ip: null
+  dns_error: 'DNS resolution failed for host.dns.snadboy.com: [Errno -2] Name or service
+    not known'
 - domain: unifi.snadboy.com
-  backend_url: http://192.168.86.1:80
+  backend_url: https://host.unifi.snadboy.com:443
   backend_path: /
-  force_ssl: false
+  force_ssl: true
   support_websocket: false
-  tls_insecure_skip_verify: false
+  tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.unifi.snadboy.com
+  backend_ip: 192.168.86.1
+  dns_error: null
 - domain: plex.snadboy.com
-  backend_url: https://plex:32400
+  backend_url: https://host.plex.snadboy.com:32400
   backend_path: /
   force_ssl: true
   support_websocket: false
   tls_insecure_skip_verify: false
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.plex.snadboy.com
+  backend_ip: 192.168.86.249
+  dns_error: null
 - domain: ha.snadboy.com
-  backend_url: http://homeassistant:8123
+  backend_url: http://host.ha.snadboy.com:8123
   backend_path: /
   force_ssl: true
   support_websocket: true
   tls_insecure_skip_verify: false
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.ha.snadboy.com
+  backend_ip: 192.168.86.224
+  dns_error: null
+- domain: unas-able.snadboy.com
+  backend_url: https://host.unas-able.snadboy.com:443
+  backend_path: /
+  force_ssl: true
+  support_websocket: false
+  tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.unas-able.snadboy.com
+  backend_ip: 192.168.86.65
+  dns_error: null
+- domain: unas-baker.snadboy.com
+  backend_url: https://host.unas-baker.snadboy.com:443
+  backend_path: /
+  force_ssl: true
+  support_websocket: false
+  tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.unas-baker.snadboy.com
+  backend_ip: 192.168.86.140
+  dns_error: null
+- domain: proxmox-backup.snadboy.com
+  backend_url: https://host.proxmox-backup.snadboy.com:8007
+  backend_path: /
+  force_ssl: true
+  support_websocket: true
+  tls_insecure_skip_verify: true
+  cloudflare_tunnel: false
+  dns_resolved: true
+  backend_host: host.proxmox-backup.snadboy.com
+  backend_ip: 192.168.86.87
+  dns_error: null

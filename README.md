@@ -447,13 +447,12 @@ Add these port-based labels to your Docker containers to enable reverse proxy. T
 
 | Label | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `snadboy.revp.{PORT}.domain` | Yes | - | Primary domain (e.g., `app.example.com`) for local/direct access |
-| `snadboy.revp.{PORT}.tunnel-domain` | No | - | Additional tunnel domain (e.g., `cf-app.example.com`) for Cloudflare tunnel access |
+| `snadboy.revp.{PORT}.domain` | Yes | - | Domain for the service (e.g., `app.example.com`) |
 | `snadboy.revp.{PORT}.backend-proto` | No | `http` | Backend protocol (`http` or `https`) |
 | `snadboy.revp.{PORT}.backend-path` | No | `/` | Backend path |
-| `snadboy.revp.{PORT}.force-ssl` | No | `true` | Force SSL/HTTPS (applies to primary domain only) |
+| `snadboy.revp.{PORT}.force-ssl` | No | `true` | Force SSL/HTTPS redirect |
 | `snadboy.revp.{PORT}.support-websocket` | No | `false` | Enable WebSocket support |
-| `snadboy.revp.{PORT}.cloudflare-tunnel` | No | `false` | Enable Cloudflare tunnel headers for primary domain |
+| `snadboy.revp.{PORT}.cloudflare-tunnel` | No | `false` | Enable Cloudflare tunnel headers (CF-Connecting-IP) |
 
 **Key Changes from v1.x:**
 - **Port-based indexing**: Use the container port as the index (e.g., `snadboy.revp.80.domain`)
@@ -461,27 +460,37 @@ Add these port-based labels to your Docker containers to enable reverse proxy. T
 - **Cleaner syntax**: No need for separate `container-port` label
 - **Backward compatibility**: Legacy labels are no longer supported (breaking change)
 
-#### Tunnel Domain Behavior
+#### Cloudflare Tunnel Configuration
 
-When you add a `tunnel-domain` label, RevP automatically creates **two routes** for the same service:
+When using Cloudflare Tunnels with Docker RevP, configure your tunnel to point to Caddy with the proper `httpHostHeader` parameter. This tells Caddy which backend service to route the request to.
 
-1. **Primary Domain Route**:
-   - Uses `domain` label value
-   - Configured with `force-ssl` setting (default: `true`)
-   - Intended for local/direct access
-   - Full HTTPS configuration with redirects
+**Tunnel Configuration (`~/.cloudflared/config.yml`):**
+```yaml
+tunnel: your-tunnel-id
+credentials-file: /path/to/credentials.json
 
-2. **Tunnel Domain Route**:
-   - Uses `tunnel-domain` label value  
-   - Always configured with `force-ssl=false` and `cloudflare-tunnel=true`
-   - Intended for Cloudflare tunnel access
-   - HTTP-only, no redirects, Cloudflare headers
+ingress:
+  # Each service needs its hostname and httpHostHeader
+  - hostname: overseerr.example.com
+    service: http://caddy:80  # or http://vm-switchboard:80
+    originRequest:
+      httpHostHeader: overseerr.example.com  # Must match container's domain label
+      
+  - hostname: jellyfin.example.com
+    service: http://caddy:80
+    originRequest:
+      httpHostHeader: jellyfin.example.com
+      
+  # Catch-all rule (required)
+  - service: http_status:404
+```
 
-**Important Notes:**
-- Both routes point to the **same backend container and port**
-- Port changes are automatically reflected in both routes
-- Tunnel domains appear with 🌐 indicator in the dashboard
-- No static routes or hard-coded ports required
+**Key Points:**
+- **Service URL**: Always use `http://caddy:80` (or your Caddy host)
+- **httpHostHeader**: Must match the `domain` label on your container
+- **Protocol**: Use HTTP (not HTTPS) - Cloudflare handles TLS termination
+- **Container Labels**: Set `cloudflare-tunnel=true` to enable CF headers
+- **No DNS Records**: Cloudflare Tunnel handles public DNS automatically
 
 ### Example Container Labels
 
@@ -523,7 +532,7 @@ services:
       - "snadboy.revp.8000.support-websocket=true"
 ```
 
-**Container with Tunnel Domain (Dual Access):**
+**Container with Cloudflare Tunnel Support:**
 ```yaml
 services:
   overseerr:
@@ -531,26 +540,18 @@ services:
     ports:
       - "5055:5055"
     labels:
-      # Primary domain for local access
       - "snadboy.revp.5055.domain=overseerr.example.com"
-      - "snadboy.revp.5055.force-ssl=true"  # HTTPS with redirect
-      
-      # Tunnel domain for Cloudflare access  
-      - "snadboy.revp.5055.tunnel-domain=cf-overseerr.example.com"
-      
-      # Common settings for both domains
       - "snadboy.revp.5055.backend-proto=http"
       - "snadboy.revp.5055.support-websocket=false"
+      - "snadboy.revp.5055.cloudflare-tunnel=true"  # Enable CF headers
+      - "snadboy.revp.5055.force-ssl=false"  # Disable HTTPS redirect for tunnel
 ```
 
-This configuration creates **two routes automatically**:
-- `overseerr.example.com` → Local access with HTTPS + redirect
-- `cf-overseerr.example.com` → Tunnel access with HTTP only + Cloudflare headers
-
-**Benefits:**
-- ✅ No hard-coded ports - both routes update automatically if port mappings change
-- ✅ Same container serves both local and external users with appropriate SSL handling
-- ✅ Cloudflare headers (`CF-Connecting-IP`) automatically configured for tunnel domain
+**How it works:**
+- Single domain `overseerr.example.com` works for both local and tunnel access
+- `cloudflare-tunnel=true` enables proper Cloudflare headers (CF-Connecting-IP)
+- `force-ssl=false` prevents HTTPS redirect issues with tunnels
+- Cloudflare Tunnel config uses `httpHostHeader` to route to correct service
 
 ### Static Routes Configuration
 

@@ -149,10 +149,16 @@
             <div id="static-routes-tab" class="tab-panel">
                 <div class="static-routes-header">
                     <h2>Static Routes Management</h2>
-                    <button id="add-route-btn" class="btn btn-primary">
-                        <span class="icon">+</span>
-                        Add Static Route
-                    </button>
+                    <div class="header-buttons">
+                        <button id="recheck-static-routes-btn" class="btn btn-secondary">
+                            <span class="btn-text">🔄 Recheck Routes</span>
+                            <span class="btn-loading" style="display: none;">Checking...</span>
+                        </button>
+                        <button id="add-route-btn" class="btn btn-primary">
+                            <span class="icon">+</span>
+                            Add Static Route
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="static-routes-info">
@@ -161,12 +167,16 @@
                         <span id="total-static-routes" class="info-value">-</span>
                     </div>
                     <div class="info-card">
-                        <h3>File Status</h3>
-                        <span id="file-status" class="info-value">-</span>
+                        <h3>Working Routes</h3>
+                        <span id="working-routes" class="info-value">-</span>
                     </div>
                     <div class="info-card">
-                        <h3>Last Modified</h3>
-                        <span id="last-modified" class="info-value">-</span>
+                        <h3>DNS Issues</h3>
+                        <span id="dns-issues" class="info-value">-</span>
+                    </div>
+                    <div class="info-card">
+                        <h3>File Status</h3>
+                        <span id="file-status" class="info-value">-</span>
                     </div>
                 </div>
 
@@ -176,6 +186,7 @@
                             <tr>
                                 <th class="sortable" data-sort="domain">Domain</th>
                                 <th class="sortable" data-sort="backend_url">Backend URL</th>
+                                <th class="sortable" data-sort="dns_resolved" title="DNS resolution and connectivity status">Backend Status</th>
                                 <th class="sortable" data-sort="backend_path">Backend Path</th>
                                 <th class="sortable" data-sort="force_ssl">Force SSL</th>
                                 <th class="sortable" data-sort="support_websocket">WebSocket</th>
@@ -207,6 +218,10 @@
             <div id="hosts-tab" class="tab-panel">
                 <div class="hosts-header">
                     <h2>Hosts Configuration</h2>
+                    <button id="recheck-hosts-btn" class="btn btn-secondary">
+                        <span class="btn-text">🔄 Recheck Hosts</span>
+                        <span class="btn-loading" style="display: none;">Checking...</span>
+                    </button>
                 </div>
 
                 <div class="hosts-info">

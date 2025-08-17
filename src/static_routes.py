@@ -4,13 +4,15 @@ import tempfile
 import shutil
 import time
 import yaml
+import socket
+from urllib.parse import urlparse
 try:
     import fcntl
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 from pydantic import BaseModel, field_validator, ValidationError
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
@@ -28,6 +30,11 @@ class StaticRoute(BaseModel):
     support_websocket: bool = False
     tls_insecure_skip_verify: bool = False
     cloudflare_tunnel: bool = False
+    # DNS validation fields (not in YAML, populated at runtime)
+    dns_resolved: Optional[bool] = None
+    backend_host: Optional[str] = None
+    backend_ip: Optional[str] = None
+    dns_error: Optional[str] = None
     
     @field_validator('domain')
     def validate_domain(cls, v):
@@ -44,6 +51,58 @@ class StaticRoute(BaseModel):
         if not (v.startswith('http://') or v.startswith('https://')):
             raise ValueError("Backend URL must start with http:// or https://")
         return v.strip()
+    
+    def validate_dns(self) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Validate that the backend URL's hostname resolves.
+        Returns: (success, resolved_ip, error_message)
+        """
+        try:
+            parsed = urlparse(self.backend_url)
+            hostname = parsed.hostname
+            
+            if not hostname:
+                return False, None, "No hostname in backend URL"
+            
+            # Store the hostname for reference
+            self.backend_host = hostname
+            
+            # Check if it's already an IP address
+            try:
+                socket.inet_aton(hostname)
+                self.backend_ip = hostname
+                self.dns_resolved = True
+                self.dns_error = None
+                return True, hostname, None
+            except socket.error:
+                pass
+            
+            # Try to resolve the hostname
+            try:
+                ip_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                if ip_info:
+                    resolved_ip = ip_info[0][4][0]
+                    self.backend_ip = resolved_ip
+                    self.dns_resolved = True
+                    self.dns_error = None
+                    return True, resolved_ip, None
+                else:
+                    error = f"Could not resolve {hostname}"
+                    self.dns_resolved = False
+                    self.dns_error = error
+                    return False, None, error
+                    
+            except socket.gaierror as e:
+                error = f"DNS resolution failed for {hostname}: {e}"
+                self.dns_resolved = False
+                self.dns_error = error
+                return False, None, error
+                
+        except Exception as e:
+            error = f"Error validating DNS for {self.backend_url}: {e}"
+            self.dns_resolved = False
+            self.dns_error = error
+            return False, None, error
 
 
 class StaticRoutesConfig(BaseModel):
@@ -122,9 +181,17 @@ class StaticRoutesManager:
             self._routes = config.static_routes
             self._file_mtime = current_mtime
             
-            api_logger.info(f"Loaded {len(self._routes)} static routes")
+            # Validate DNS for each route
+            dns_failures = 0
             for route in self._routes:
-                api_logger.debug(f"Static route: {route.domain} -> {route.backend_url}")
+                success, ip, error = route.validate_dns()
+                if success:
+                    api_logger.debug(f"Static route: {route.domain} -> {route.backend_url} (resolved to {ip})")
+                else:
+                    dns_failures += 1
+                    api_logger.warning(f"DNS validation failed for static route {route.domain}: {error}")
+            
+            api_logger.info(f"Loaded {len(self._routes)} static routes ({dns_failures} with DNS issues)")
             
             return self._routes
             

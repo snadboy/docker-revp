@@ -14,7 +14,7 @@ from .logger import docker_logger
 class ServiceInfo:
     """Individual service configuration for containers or static routes."""
     
-    def __init__(self, port: str = None, labels_dict: dict = None, static_route=None, tunnel_domain: str = None):
+    def __init__(self, port: str = None, labels_dict: dict = None, static_route=None):
         if static_route:
             # Initialize from static route
             self.port = "static"
@@ -28,23 +28,8 @@ class ServiceInfo:
             self.resolved_host_port = None
             self._static_backend_url = static_route.backend_url
             self.is_static = True
-            self.is_tunnel_domain = False
-        elif tunnel_domain:
-            # Initialize from tunnel domain (special case of container service)
-            self.port = port
-            self.domain = tunnel_domain
-            self.backend_proto = labels_dict.get("backend-proto", "http")
-            self.backend_path = labels_dict.get("backend-path", "/")
-            self.force_ssl = False  # Tunnel domains should not force SSL redirect
-            self.support_websocket = labels_dict.get("support-websocket", "false").lower() == "true"
-            self.cloudflare_tunnel = True  # Tunnel domains always use cloudflare tunnel mode
-            self.tls_insecure_skip_verify = False  # Not supported for container labels
-            self.resolved_host_port = None
-            self._static_backend_url = None
-            self.is_static = False
-            self.is_tunnel_domain = True
         else:
-            # Initialize from container labels (primary domain)
+            # Initialize from container labels
             self.port = port
             self.domain = labels_dict.get("domain", "")
             self.backend_proto = labels_dict.get("backend-proto", "http")
@@ -56,7 +41,6 @@ class ServiceInfo:
             self.resolved_host_port = None
             self._static_backend_url = None
             self.is_static = False
-            self.is_tunnel_domain = False
     
     @property
     def is_valid(self) -> bool:
@@ -92,7 +76,6 @@ class ServiceInfo:
             "cloudflare_tunnel": self.cloudflare_tunnel,
             "resolved_host_port": self.resolved_host_port,
             "is_static": self.is_static,
-            "is_tunnel_domain": self.is_tunnel_domain,
             "static_backend_url": self._static_backend_url if self.is_static else None
         }
 
@@ -140,16 +123,8 @@ class ContainerInfo:
         # Convert to ServiceInfo objects
         service_objects = {}
         for port, service_labels in services.items():
-            # Create primary domain service
+            # Create service object for each port
             service_objects[port] = ServiceInfo(port, service_labels)
-            
-            # Check if this service has a tunnel domain
-            tunnel_domain = service_labels.get("tunnel-domain")
-            if tunnel_domain:
-                # Create additional service for tunnel domain
-                # Use a special key format: port_tunnel
-                tunnel_key = f"{port}_tunnel"
-                service_objects[tunnel_key] = ServiceInfo(port, service_labels, tunnel_domain=tunnel_domain)
         
         return service_objects
     

@@ -158,15 +158,20 @@ class SSHConfigManager:
         for alias, host, port in hosts:
             ssh_logger.info(f"Testing connection to {host}:{port}")
             
-            # Test with docker version command
-            cmd = f"docker -H ssh://{alias} version"
+            # Generate the SSH alias that matches what's in the SSH config file
+            # This should match the format used in _generate_ssh_config_from_hosts_yml
+            ssh_alias = f"docker-{host.replace('.', '-').replace(':', '-')}-{port}"
+            
+            # Test with docker version command using the correct SSH alias
+            cmd = f"docker -H ssh://{ssh_alias} version"
             exit_code = os.system(f"{cmd} >/dev/null 2>&1")
             
             success = exit_code == 0
             results[host] = {
                 "alias": alias,
                 "port": port,
-                "connected": success
+                "connected": success,
+                "ssh_alias": ssh_alias
             }
             
             if success:

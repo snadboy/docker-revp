@@ -620,23 +620,9 @@ class Dashboard {
                 domain = firstService.domain || '-';
                 backend = firstService.backend_url || '-';
                 
-                // Add tunnel domain indicator if this is a tunnel domain
-                if (firstService.is_tunnel_domain) {
-                    domain += ' 🌐';
-                }
-                
                 // If multiple services, indicate that
                 if (container.services.length > 1) {
-                    // Count tunnel domains
-                    const tunnelCount = container.services.filter(s => s.is_tunnel_domain).length;
-                    const normalCount = container.services.length - tunnelCount;
-                    
-                    domain += ` (+${container.services.length - 1} more`;
-                    if (tunnelCount > 1 || (tunnelCount > 0 && !firstService.is_tunnel_domain)) {
-                        domain += `, ${tunnelCount} tunnel`;
-                    }
-                    domain += ')';
-                    
+                    domain += ` (+${container.services.length - 1} more)`;
                     backend += ` (+${container.services.length - 1} more)`;
                 }
             }
@@ -763,15 +749,6 @@ class Dashboard {
                     </div>
                 `;
 
-                // Show if this is a tunnel domain
-                if (service.is_tunnel_domain) {
-                    labelsHtml += `
-                        <div class="label-item" style="color: var(--accent-color);">
-                            <span class="label-key">🌐 Service Type:</span>
-                            <span class="label-value">Tunnel Domain (Auto-configured for Cloudflare)</span>
-                        </div>
-                    `;
-                }
                 
                 // Show warning if port is not published
                 if (!service.resolved_host_port) {
@@ -1028,6 +1005,9 @@ class Dashboard {
                 });
             }
             
+            // Setup hosts event handlers
+            this.setupHostsEventHandlers();
+            
         } catch (error) {
             console.error('Error loading hosts data:', error);
             this.hostsData = {
@@ -1066,6 +1046,41 @@ class Dashboard {
             connectedHostsEl.textContent = connectedCount;
         }
         
+        // Display validation errors if any
+        if (this.hostsData.validation_errors && this.hostsData.validation_errors.length > 0) {
+            let errorContainer = document.getElementById('hosts-errors');
+            if (!errorContainer) {
+                // Create error container if it doesn't exist
+                const hostsContent = document.querySelector('.hosts-content');
+                if (hostsContent) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.id = 'hosts-errors';
+                    errorDiv.className = 'alert alert-danger';
+                    errorDiv.style.marginBottom = '1rem';
+                    errorDiv.style.padding = '1rem';
+                    errorDiv.style.borderRadius = '4px';
+                    errorDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
+                    errorDiv.style.border = '1px solid rgba(220, 53, 69, 0.3)';
+                    hostsContent.insertBefore(errorDiv, hostsContent.firstChild);
+                    errorContainer = errorDiv;
+                }
+            }
+            if (errorContainer) {
+                errorContainer.innerHTML = `
+                    <strong style="color: var(--danger-color);">Configuration Errors:</strong>
+                    <ul style="margin-bottom: 0; margin-top: 0.5rem; padding-left: 1.5rem;">
+                        ${this.hostsData.validation_errors.map(err => `<li style="color: var(--danger-color);">${err}</li>`).join('')}
+                    </ul>
+                `;
+            }
+        } else {
+            // Remove error container if no errors
+            const errorContainer = document.getElementById('hosts-errors');
+            if (errorContainer) {
+                errorContainer.remove();
+            }
+        }
+        
         // Update hosts table
         const tableBody = document.getElementById('hosts-table-body');
         if (!tableBody) return;
@@ -1092,20 +1107,55 @@ class Dashboard {
         
         // Build table rows
         const rows = sortedHosts.map(host => {
-            // Determine connection status
+            // Determine connection and DNS status
             let statusBadge = '<span class="host-status disabled">Unknown</span>';
+            let statusDetails = [];
             
             if (!host.enabled) {
                 statusBadge = '<span class="host-status disabled">Disabled</span>';
             } else {
-                const connectionInfo = this.hostsData.connection_status[host.hostname];
-                if (connectionInfo) {
-                    if (connectionInfo.connected) {
-                        statusBadge = '<span class="host-status connected">Connected</span>';
+                // Check DNS resolution first
+                if (host.dns_resolved === false) {
+                    statusBadge = '<span class="host-status disconnected" title="DNS resolution failed">DNS Failed</span>';
+                    if (host.dns_errors && host.dns_errors.length > 0) {
+                        statusDetails = host.dns_errors;
+                    }
+                } else if (host.dns_resolved === true) {
+                    // DNS resolved, check SSH connection
+                    const connectionInfo = this.hostsData.connection_status[host.hostname];
+                    if (connectionInfo) {
+                        if (connectionInfo.connected) {
+                            statusBadge = '<span class="host-status connected">Connected</span>';
+                        } else {
+                            statusBadge = '<span class="host-status disconnected">SSH Failed</span>';
+                        }
                     } else {
-                        statusBadge = '<span class="host-status disconnected">Disconnected</span>';
+                        statusBadge = '<span class="host-status disabled">Not Tested</span>';
+                    }
+                } else {
+                    // DNS status unknown
+                    const connectionInfo = this.hostsData.connection_status[host.hostname];
+                    if (connectionInfo) {
+                        if (connectionInfo.connected) {
+                            statusBadge = '<span class="host-status connected">Connected</span>';
+                        } else {
+                            statusBadge = '<span class="host-status disconnected">Disconnected</span>';
+                        }
                     }
                 }
+            }
+            
+            // Build hostname display with IP if available
+            let hostnameDisplay = host.hostname;
+            if (host.ip_address) {
+                hostnameDisplay += `<br><small style="color: var(--text-secondary);">${host.ip_address}</small>`;
+            }
+            
+            // Add error/warning indicators
+            if (host.dns_errors && host.dns_errors.length > 0) {
+                hostnameDisplay += `<br><small style="color: var(--danger-color);">${host.dns_errors.join(', ')}</small>`;
+            } else if (host.dns_warnings && host.dns_warnings.length > 0) {
+                hostnameDisplay += `<br><small style="color: var(--warning-color);">${host.dns_warnings.join(', ')}</small>`;
             }
             
             // Show only the key filename
@@ -1114,7 +1164,7 @@ class Dashboard {
             return `
                 <tr ${!host.enabled ? 'style="opacity: 0.6;"' : ''}>
                     <td><strong>${host.alias}</strong></td>
-                    <td>${host.hostname}</td>
+                    <td>${hostnameDisplay}</td>
                     <td>${host.user}</td>
                     <td>${host.port}</td>
                     <td>${statusBadge}</td>
@@ -1912,26 +1962,30 @@ class Dashboard {
     }
 
     updateStaticRoutesDisplay() {
+        // Calculate DNS status counts
+        const workingRoutes = this.staticRoutesData.filter(route => route.dns_resolved === true).length;
+        const dnsIssues = this.staticRoutesData.filter(route => route.dns_resolved === false).length;
+        
         // Update info cards
         const totalRoutesEl = document.getElementById('total-static-routes');
+        const workingRoutesEl = document.getElementById('working-routes');
+        const dnsIssuesEl = document.getElementById('dns-issues');
         const fileStatusEl = document.getElementById('file-status');
-        const lastModifiedEl = document.getElementById('last-modified');
         
         if (totalRoutesEl) {
             totalRoutesEl.textContent = this.staticRoutesData.length;
         }
         
-        if (fileStatusEl) {
-            fileStatusEl.textContent = this.staticRoutesFileInfo.exists ? 'OK' : 'Missing';
+        if (workingRoutesEl) {
+            workingRoutesEl.textContent = workingRoutes;
         }
         
-        if (lastModifiedEl) {
-            if (this.staticRoutesFileInfo.last_modified) {
-                const date = new Date(this.staticRoutesFileInfo.last_modified);
-                lastModifiedEl.textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-            } else {
-                lastModifiedEl.textContent = 'Unknown';
-            }
+        if (dnsIssuesEl) {
+            dnsIssuesEl.textContent = dnsIssues;
+        }
+        
+        if (fileStatusEl) {
+            fileStatusEl.textContent = this.staticRoutesFileInfo.exists ? 'OK' : 'Missing';
         }
         
         // Update table
@@ -1960,9 +2014,28 @@ class Dashboard {
                 ? '<span class="badge badge-warning" title="TLS certificate verification is disabled">Yes</span>' 
                 : '<span class="badge badge-muted">No</span>';
             
+            // Create DNS status badge
+            let dnsStatusBadge = '';
+            let dnsTooltip = '';
+            
+            if (route.dns_resolved === true) {
+                dnsStatusBadge = '<span class="badge badge-success">✓ Resolved</span>';
+                dnsTooltip = `DNS resolved successfully to ${route.backend_ip || 'IP address'}`;
+                if (route.backend_host) {
+                    dnsTooltip += ` (${route.backend_host})`;
+                }
+            } else if (route.dns_resolved === false) {
+                dnsStatusBadge = '<span class="badge badge-danger">✗ DNS Error</span>';
+                dnsTooltip = route.dns_error || 'DNS resolution failed';
+            } else {
+                dnsStatusBadge = '<span class="badge badge-muted">? Unknown</span>';
+                dnsTooltip = 'DNS status not checked';
+            }
+            
             row.innerHTML = `
                 <td title="${route.domain}">${route.domain}</td>
                 <td title="${route.backend_url}">${route.backend_url}</td>
+                <td title="${dnsTooltip}">${dnsStatusBadge}</td>
                 <td title="${route.backend_path}">${route.backend_path}</td>
                 <td>${sslBadge}</td>
                 <td>${wsBadge}</td>
@@ -2012,6 +2085,11 @@ class Dashboard {
                     aValue = a.tls_insecure_skip_verify ? 1 : 0;
                     bValue = b.tls_insecure_skip_verify ? 1 : 0;
                     break;
+                case 'dns_resolved':
+                    // Sort by DNS status: resolved first, then unknown, then failed
+                    aValue = a.dns_resolved === true ? 2 : (a.dns_resolved === false ? 0 : 1);
+                    bValue = b.dns_resolved === true ? 2 : (b.dns_resolved === false ? 0 : 1);
+                    break;
                 default:
                     return 0;
             }
@@ -2033,6 +2111,12 @@ class Dashboard {
         const addBtn = document.getElementById('add-route-btn');
         if (addBtn) {
             addBtn.onclick = () => this.showRouteModal();
+        }
+        
+        // Recheck DNS button
+        const recheckBtn = document.getElementById('recheck-static-routes-btn');
+        if (recheckBtn) {
+            recheckBtn.onclick = () => this.recheckStaticRoutesDNS();
         }
         
         // Modal event handlers
@@ -2271,6 +2355,100 @@ class Dashboard {
         } finally {
             confirmBtn.classList.remove('btn-loading');
         }
+    }
+
+    setupHostsEventHandlers() {
+        // Recheck DNS button
+        const recheckBtn = document.getElementById('recheck-hosts-btn');
+        if (recheckBtn) {
+            recheckBtn.onclick = () => this.recheckHostsDNS();
+        }
+    }
+
+    async recheckStaticRoutesDNS() {
+        const btn = document.getElementById('recheck-static-routes-btn');
+        const btnText = btn.querySelector('.btn-text');
+        const btnLoading = btn.querySelector('.btn-loading');
+        
+        try {
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            btn.disabled = true;
+            
+            const response = await fetch('/api/static-routes/recheck-dns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('Static routes DNS recheck completed:', result);
+                
+                // Reload static routes data to show updated status
+                await this.loadStaticRoutesData();
+                
+                // Show success message
+                this.showNotification(`DNS recheck completed: ${result.working_routes} working, ${result.dns_issues} issues`, 'success');
+            } else {
+                const error = await response.json();
+                this.showNotification(`Error rechecking DNS: ${error.detail || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error rechecking static routes DNS:', error);
+            this.showNotification('Network error while rechecking DNS', 'error');
+        } finally {
+            // Reset button state
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    async recheckHostsDNS() {
+        const btn = document.getElementById('recheck-hosts-btn');
+        const btnText = btn.querySelector('.btn-text');
+        const btnLoading = btn.querySelector('.btn-loading');
+        
+        try {
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            btn.disabled = true;
+            
+            const response = await fetch('/api/hosts/recheck-dns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('Hosts DNS recheck completed:', result);
+                
+                // Reload hosts data to show updated status
+                await this.loadHostsData();
+                
+                // Show success message
+                this.showNotification(`DNS recheck completed: ${result.working_hosts} working, ${result.dns_issues} issues`, 'success');
+            } else {
+                const error = await response.json();
+                this.showNotification(`Error rechecking DNS: ${error.detail || 'Unknown error'}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error rechecking hosts DNS:', error);
+            this.showNotification('Network error while rechecking DNS', 'error');
+        } finally {
+            // Reset button state
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    showNotification(message, type = 'info') {
+        // Simple notification - could be enhanced with a proper toast system
+        console.log(`${type.toUpperCase()}: ${message}`);
+        alert(message); // For now, use alert - could be replaced with a toast notification
     }
 }
 

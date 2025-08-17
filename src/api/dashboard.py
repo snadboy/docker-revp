@@ -367,12 +367,16 @@ async def get_hosts_status(request: Request) -> Dict[str, Any]:
     api_logger.info("Hosts status requested")
     
     try:
+        from ..hosts_config import verify_hostname_resolution
+        
         hosts_info = {
             "configuration_type": "unknown",
             "hosts": [],
             "total_hosts": 0,
             "enabled_hosts": 0,
-            "connection_status": {}
+            "connection_status": {},
+            "dns_verification": {},
+            "validation_errors": []
         }
         
         # Load hosts configuration from hosts.yml
@@ -380,8 +384,13 @@ async def get_hosts_status(request: Request) -> Dict[str, Any]:
         hosts_info["configuration_type"] = "hosts.yml"
         enabled_hosts = hosts_config.get_enabled_hosts()
         
-        # Build hosts information
+        # Perform DNS verification
+        dns_results = verify_hostname_resolution(hosts_config, check_dns=True)
+        hosts_info["dns_verification"] = dns_results
+        
+        # Build hosts information with DNS status
         for alias, host_config in hosts_config.hosts.items():
+            dns_info = dns_results.get(alias, {})
             host_info = {
                 "alias": alias,
                 "hostname": host_config.hostname,
@@ -389,9 +398,18 @@ async def get_hosts_status(request: Request) -> Dict[str, Any]:
                 "port": host_config.port,
                 "description": host_config.description,
                 "enabled": host_config.enabled,
-                "key_file": host_config.key_file  # May want to mask this in production
+                "key_file": host_config.key_file,  # May want to mask this in production
+                "dns_resolved": dns_info.get("dns_resolved", False),
+                "ip_address": dns_info.get("ip_address"),
+                "dns_errors": dns_info.get("errors", []),
+                "dns_warnings": dns_info.get("warnings", [])
             }
             hosts_info["hosts"].append(host_info)
+            
+            # Collect validation errors
+            if dns_info.get("errors"):
+                for error in dns_info["errors"]:
+                    hosts_info["validation_errors"].append(f"{alias}: {error}")
         
         hosts_info["total_hosts"] = len(hosts_config.hosts)
         hosts_info["enabled_hosts"] = len(enabled_hosts)
@@ -622,6 +640,71 @@ async def get_caddy_config(request: Request) -> Dict[str, Any]:
             "error": str(e),
             "config": None,
             "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+
+@router.post("/api/hosts/recheck-dns", response_model=Dict[str, Any])
+async def recheck_hosts_dns(request: Request) -> Dict[str, Any]:
+    """
+    Recheck DNS resolution for all hosts.
+    
+    Returns:
+        Summary of hosts DNS recheck results
+    """
+    api_logger.info("API: Rechecking DNS for all hosts")
+    
+    try:
+        from ..hosts_config import validate_and_report_hosts
+        from pathlib import Path
+        
+        # Validate hosts configuration with DNS check
+        hosts_config_file = Path("/app/config/hosts.yml")
+        
+        if not hosts_config_file.exists():
+            return {
+                "status": "error",
+                "message": "Hosts configuration file not found",
+                "total_hosts": 0,
+                "working_hosts": 0,
+                "dns_issues": 0
+            }
+        
+        success, report = validate_and_report_hosts(hosts_config_file, check_dns=True)
+        
+        # Calculate results
+        total_hosts = report.get('enabled_hosts', 0)
+        dns_results = report.get('dns_verification', {})
+        
+        working_hosts = 0
+        dns_issues = 0
+        
+        for alias, result in dns_results.items():
+            if result.get('dns_resolved', False):
+                working_hosts += 1
+            else:
+                dns_issues += 1
+        
+        api_logger.info(f"Hosts DNS recheck completed: {working_hosts} working, {dns_issues} issues")
+        
+        return {
+            "status": "completed",
+            "total_hosts": total_hosts,
+            "working_hosts": working_hosts,
+            "dns_issues": dns_issues,
+            "success": success,
+            "errors": report.get('errors', []),
+            "warnings": report.get('warnings', []),
+            "message": f"DNS recheck completed for {total_hosts} hosts"
+        }
+        
+    except Exception as e:
+        api_logger.error(f"API: Error rechecking hosts DNS: {str(e)}")
+        return {
+            "status": "error", 
+            "message": f"Error rechecking hosts DNS: {str(e)}",
+            "total_hosts": 0,
+            "working_hosts": 0,
+            "dns_issues": 0
         }
 
 
