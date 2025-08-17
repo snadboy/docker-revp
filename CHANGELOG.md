@@ -1,3 +1,10 @@
+# [3.11.0](https://github.com/snadboy/docker-revp/compare/v3.10.0...v3.11.0) (2025-08-17)
+
+
+### Features
+
+* add DNS recheck functionality and status display for static routes and hosts ([2036704](https://github.com/snadboy/docker-revp/commit/203670411156fc581a0dd165b6ace541de257786))
+
 # [3.10.0](https://github.com/snadboy/docker-revp/compare/v3.9.1...v3.10.0) (2025-08-10)
 
 
