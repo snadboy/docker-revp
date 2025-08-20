@@ -218,147 +218,6 @@ async def dashboard_summary(request: Request) -> Dict[str, Any]:
     return summary
 
 
-@router.get("/api/certificate/status")
-async def get_certificate_status(request: Request) -> Dict[str, Any]:
-    """Get wildcard certificate status information."""
-    api_logger.info("Certificate status requested")
-    
-    try:
-        # Use Caddy API to check certificate info if available
-        if request.app.state.caddy_manager:
-            # Get TLS certificates info from Caddy
-            caddy_url = request.app.state.caddy_manager.api_url
-            import httpx
-            
-            async with httpx.AsyncClient() as client:
-                try:
-                    # Get certificates info from Caddy admin API
-                    response = await client.get(f"{caddy_url}/config/apps/tls/certificates")
-                    if response.status_code == 200:
-                        certificates = response.json()
-                        
-                        # Look for our wildcard certificate
-                        for cert_key, cert_info in certificates.items():
-                            if isinstance(cert_info, dict) and "subjects" in cert_info:
-                                subjects = cert_info.get("subjects", [])
-                                if "*.snadboy.com" in subjects:
-                                    # Found our certificate
-                                    not_after = cert_info.get("not_after")
-                                    if not_after:
-                                        # Convert timestamp to datetime
-                                        expiry_dt = datetime.fromtimestamp(not_after, timezone.utc)
-                                        expiry_date = expiry_dt.isoformat()
-                                        
-                                        # Calculate days until expiry
-                                        now = datetime.now(timezone.utc)
-                                        days_until_expiry = (expiry_dt - now).days
-                                        
-                                        if days_until_expiry > 30:
-                                            status = "valid"
-                                        elif days_until_expiry > 7:
-                                            status = "expiring"
-                                        else:
-                                            status = "expired"
-                                        
-                                        return {
-                                            "exists": True,
-                                            "domain": "*.snadboy.com",
-                                            "issuer": "Let's Encrypt",
-                                            "sans": subjects,
-                                            "expiry_date": expiry_date,
-                                            "days_until_expiry": days_until_expiry,
-                                            "status": status,
-                                            "challenge_type": "DNS-01",
-                                            "provider": "Cloudflare"
-                                        }
-                                
-                except Exception as e:
-                    api_logger.warning(f"Could not get certificate info from Caddy API: {e}")
-        
-        # Fallback to openssl command to check certificate
-        try:
-            # Use openssl command to get certificate info
-            cmd = [
-                "sh", "-c", 
-                "echo | openssl s_client -connect revp-api.snadboy.com:443 -servername revp-api.snadboy.com 2>/dev/null | openssl x509 -noout -text"
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                cert_text = result.stdout
-                
-                # Parse certificate information
-                domain = "*.snadboy.com"
-                issuer = "Let's Encrypt"
-                expiry_date = None
-                
-                for line in cert_text.split('\n'):
-                    line = line.strip()
-                    if line.startswith("Subject: CN ="):
-                        domain = line.split("CN =", 1)[1].strip()
-                    elif "Issuer:" in line and "Let's Encrypt" in line:
-                        issuer = "Let's Encrypt"
-                    elif "Not After :" in line:
-                        # Parse "Not After : Oct 20 23:28:55 2025 GMT"
-                        date_part = line.split("Not After :", 1)[1].strip()
-                        expiry_dt = datetime.strptime(date_part, "%b %d %H:%M:%S %Y %Z")
-                        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
-                        expiry_date = expiry_dt.isoformat()
-                        
-                        # Calculate days until expiry
-                        now = datetime.now(timezone.utc)
-                        days_until_expiry = (expiry_dt - now).days
-                        
-                        if days_until_expiry > 30:
-                            status = "valid"
-                        elif days_until_expiry > 7:
-                            status = "expiring"
-                        else:
-                            status = "expired"
-                        
-                        return {
-                            "exists": True,
-                            "domain": domain,
-                            "issuer": issuer,
-                            "sans": [domain],
-                            "expiry_date": expiry_date,
-                            "days_until_expiry": days_until_expiry,
-                            "status": status,
-                            "challenge_type": "DNS-01",
-                            "provider": "Cloudflare"
-                        }
-                    
-        except Exception as e:
-            api_logger.warning(f"Could not get certificate via openssl command: {e}")
-        
-        # If all methods fail, return default response
-        return {
-            "exists": False,
-            "domain": "*.snadboy.com",
-            "issuer": "Unknown",
-            "sans": [],
-            "expiry_date": None,
-            "days_until_expiry": None,
-            "status": "unknown",
-            "challenge_type": "DNS-01",
-            "provider": "Cloudflare"
-        }
-            
-    except Exception as e:
-        api_logger.error(f"Error getting certificate status: {e}")
-        return {
-            "exists": False,
-            "domain": "*.snadboy.com",
-            "issuer": "Unknown",
-            "sans": [],
-            "expiry_date": None,
-            "days_until_expiry": None,
-            "status": "error",
-            "challenge_type": "DNS-01",
-            "provider": "Cloudflare",
-            "error": str(e)
-        }
 
 
 @router.get("/api/hosts/status")
@@ -686,6 +545,16 @@ async def recheck_hosts_dns(request: Request) -> Dict[str, Any]:
         
         api_logger.info(f"Hosts DNS recheck completed: {working_hosts} working, {dns_issues} issues")
         
+        # Also trigger SSH connection tests if SSH manager is available
+        connection_status = {}
+        if request.app.state.ssh_manager:
+            try:
+                api_logger.info("Testing SSH connections after DNS recheck")
+                connection_status = request.app.state.ssh_manager.test_connections()
+                api_logger.info(f"SSH connection tests completed: {len(connection_status)} hosts tested")
+            except Exception as e:
+                api_logger.warning(f"Could not test SSH connections during recheck: {e}")
+        
         return {
             "status": "completed",
             "total_hosts": total_hosts,
@@ -694,6 +563,7 @@ async def recheck_hosts_dns(request: Request) -> Dict[str, Any]:
             "success": success,
             "errors": report.get('errors', []),
             "warnings": report.get('warnings', []),
+            "connection_status": connection_status,
             "message": f"DNS recheck completed for {total_hosts} hosts"
         }
         

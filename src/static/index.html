@@ -69,36 +69,6 @@
                     </div>
                 </div>
 
-                <div class="certificate-section">
-                    <h2>SSL Certificate Status</h2>
-                    <div class="certificate-info">
-                        <div class="cert-card">
-                            <h3>🔒 Wildcard Certificate</h3>
-                            <div class="cert-details">
-                                <div class="cert-item">
-                                    <span class="cert-label">Domain:</span>
-                                    <span class="cert-value" id="cert-domain">*.snadboy.com</span>
-                                </div>
-                                <div class="cert-item">
-                                    <span class="cert-label">Issuer:</span>
-                                    <span class="cert-value" id="cert-issuer">Let's Encrypt</span>
-                                </div>
-                                <div class="cert-item">
-                                    <span class="cert-label">Valid Until:</span>
-                                    <span class="cert-value" id="cert-expiry">Loading...</span>
-                                </div>
-                                <div class="cert-item">
-                                    <span class="cert-label">Status:</span>
-                                    <span class="cert-status valid" id="cert-status">Valid</span>
-                                </div>
-                                <div class="cert-item">
-                                    <span class="cert-label">Challenge Type:</span>
-                                    <span class="cert-value">DNS-01 (Cloudflare)</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="hosts-section">
                     <h2>Monitored Hosts</h2>
@@ -218,10 +188,16 @@
             <div id="hosts-tab" class="tab-panel">
                 <div class="hosts-header">
                     <h2>Hosts Configuration</h2>
-                    <button id="recheck-hosts-btn" class="btn btn-secondary">
-                        <span class="btn-text">🔄 Recheck Hosts</span>
-                        <span class="btn-loading" style="display: none;">Checking...</span>
-                    </button>
+                    <div class="header-buttons">
+                        <button id="recheck-hosts-btn" class="btn btn-secondary">
+                            <span class="btn-text">🔄 Recheck Hosts</span>
+                            <span class="btn-loading" style="display: none;">Checking...</span>
+                        </button>
+                        <button id="add-host-btn" class="btn btn-primary">
+                            <span class="icon">+</span>
+                            Add Host
+                        </button>
+                    </div>
                 </div>
 
                 <div class="hosts-info">
@@ -250,11 +226,12 @@
                                 <th class="sortable" data-sort="status">Status</th>
                                 <th class="sortable" data-sort="description">Description</th>
                                 <th>SSH Key</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="hosts-table-body">
                             <tr>
-                                <td colspan="7" style="text-align: center; padding: 2rem;">
+                                <td colspan="8" style="text-align: center; padding: 2rem;">
                                     <div class="loading"></div>
                                     Loading hosts...
                                 </td>
@@ -547,6 +524,89 @@
                 </button>
                 <button type="button" class="btn btn-primary" id="caddy-config-download">
                     <span class="btn-text">Download</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Host Modal -->
+    <div id="host-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="host-modal-title">Add Host</h3>
+                <button class="modal-close" id="host-modal-close">&times;</button>
+            </div>
+            <form id="host-form" class="modal-body">
+                <div class="form-group">
+                    <label for="host-alias">Alias *</label>
+                    <input type="text" id="host-alias" name="alias" required 
+                           placeholder="switchboard" 
+                           pattern="^[a-zA-Z0-9_-]+$">
+                    <small class="form-help">Unique identifier for this host (letters, numbers, hyphens, underscores only)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="host-hostname">Hostname *</label>
+                    <input type="text" id="host-hostname" name="hostname" required 
+                           placeholder="192.168.1.100 or docker-host.example.com">
+                    <small class="form-help">IP address or hostname of the Docker host</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="host-user">SSH User</label>
+                    <input type="text" id="host-user" name="user" value="revp" 
+                           placeholder="revp">
+                    <small class="form-help">SSH username for connecting to the host</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="host-port">SSH Port</label>
+                    <input type="number" id="host-port" name="port" value="22" min="1" max="65535">
+                    <small class="form-help">SSH port number (default: 22)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="host-key-file">SSH Key File</label>
+                    <input type="text" id="host-key-file" name="key_file" 
+                           value="/home/app/.ssh/docker_monitor_key"
+                           placeholder="/home/app/.ssh/docker_monitor_key">
+                    <small class="form-help">Path to SSH private key file</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="host-description">Description</label>
+                    <input type="text" id="host-description" name="description" 
+                           placeholder="Production Docker Host - Main services">
+                    <small class="form-help">Optional human-readable description</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="host-enabled" name="enabled" checked>
+                        <span class="checkmark"></span>
+                        Enable host monitoring
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <button type="button" class="btn btn-secondary" id="test-host-connection">
+                        <span class="btn-text">🔧 Test Connection</span>
+                        <span class="btn-loading" style="display: none;">Testing...</span>
+                    </button>
+                    <div id="connection-test-result" class="connection-test-result" style="display: none; margin-top: 0.5rem;">
+                        <!-- Connection test results will appear here -->
+                    </div>
+                </div>
+                
+                <div class="form-validation" id="host-form-validation">
+                    <!-- Validation messages will appear here -->
+                </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="host-modal-cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="host-modal-save" form="host-form">
+                    <span class="btn-text">Save Host</span>
+                    <span class="btn-loading" style="display: none;">Saving...</span>
                 </button>
             </div>
         </div>

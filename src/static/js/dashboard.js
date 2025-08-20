@@ -73,6 +73,17 @@ class SortableResizableTable {
         });
     }
     
+    setSortState(column, direction = 'asc') {
+        this.currentSort.column = column;
+        this.currentSort.direction = direction;
+        this.updateSortIndicators();
+        
+        // Call the sort callback if provided
+        if (this.options.sortCallback) {
+            this.options.sortCallback(this.currentSort.column, this.currentSort.direction);
+        }
+    }
+    
     setupResizing() {
         // Remove existing resizers
         const existingResizers = this.table.querySelectorAll('.column-resizer');
@@ -225,7 +236,7 @@ class Dashboard {
         this.summaryData = {};
         this.staticRoutesData = [];
         this.staticRoutesFileInfo = {};
-        this.sortColumn = null;
+        this.sortColumn = 'host'; // Default sort by host initially
         this.sortDirection = 'asc';
         this.expandedRows = new Set(); // Track expanded rows
         this.staticRoutesSortColumn = null;
@@ -394,9 +405,6 @@ class Dashboard {
             }
             
             this.updateSummaryDisplay();
-            
-            // Load certificate data
-            await this.loadCertificateData();
         } catch (error) {
             console.error('Error loading summary data:', error);
             this.summaryData = this.getDefaultSummaryData();
@@ -458,73 +466,6 @@ class Dashboard {
         }
     }
 
-    // Certificate Status
-    async loadCertificateData() {
-        try {
-            const response = await fetch('/api/certificate/status');
-            if (!response.ok) {
-                console.warn('Certificate API not available:', response.status);
-                return;
-            }
-            
-            const certData = await response.json();
-            this.updateCertificateDisplay(certData);
-        } catch (error) {
-            console.error('Error loading certificate data:', error);
-        }
-    }
-    
-    updateCertificateDisplay(data) {
-        // Update domain
-        const certDomainEl = document.getElementById('cert-domain');
-        if (certDomainEl) {
-            certDomainEl.textContent = data.domain || '*.snadboy.com';
-        }
-        
-        // Update issuer
-        const certIssuerEl = document.getElementById('cert-issuer');
-        if (certIssuerEl) {
-            certIssuerEl.textContent = data.issuer || 'Unknown';
-        }
-        
-        // Update expiry date
-        const certExpiryEl = document.getElementById('cert-expiry');
-        if (certExpiryEl) {
-            if (data.expiry_date) {
-                const expiryDate = new Date(data.expiry_date);
-                const formattedDate = expiryDate.toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-                
-                let displayText = formattedDate;
-                if (data.days_until_expiry !== null) {
-                    displayText += ` (${data.days_until_expiry} days)`;
-                }
-                
-                certExpiryEl.textContent = displayText;
-            } else {
-                certExpiryEl.textContent = 'Unknown';
-            }
-        }
-        
-        // Update status
-        const certStatusEl = document.getElementById('cert-status');
-        if (certStatusEl) {
-            certStatusEl.textContent = data.status ? data.status.charAt(0).toUpperCase() + data.status.slice(1) : 'Unknown';
-            
-            // Update status class
-            certStatusEl.className = 'cert-status';
-            if (data.status === 'valid') {
-                certStatusEl.classList.add('valid');
-            } else if (data.status === 'expiring') {
-                certStatusEl.classList.add('expiring');
-            } else if (data.status === 'expired' || data.status === 'error' || data.status === 'missing') {
-                certStatusEl.classList.add('expired');
-            }
-        }
-    }
 
     // Containers Tab
     async loadContainersData() {
@@ -560,6 +501,9 @@ class Dashboard {
                         this.updateContainersDisplay();
                     }
                 });
+                
+                // Set initial sort by host
+                this.containersTable.setSortState('host', 'asc');
             }
         } catch (error) {
             console.error('Error loading containers data:', error);
@@ -851,6 +795,7 @@ class Dashboard {
         return containers.sort((a, b) => {
             let aValue, bValue;
             
+            // Get primary sort values
             switch (this.sortColumn) {
                 case 'name':
                     aValue = a.name;
@@ -890,13 +835,34 @@ class Dashboard {
                 bValue = bValue.toLowerCase();
             }
             
+            // Primary sort comparison
+            let comparison = 0;
             if (aValue < bValue) {
-                return this.sortDirection === 'asc' ? -1 : 1;
+                comparison = this.sortDirection === 'asc' ? -1 : 1;
+            } else if (aValue > bValue) {
+                comparison = this.sortDirection === 'asc' ? 1 : -1;
             }
-            if (aValue > bValue) {
-                return this.sortDirection === 'asc' ? 1 : -1;
+            
+            // If primary values are equal, do secondary sort
+            if (comparison === 0) {
+                // Secondary sort by host if not already sorting by host
+                if (this.sortColumn !== 'host') {
+                    const aHost = a.host.toLowerCase();
+                    const bHost = b.host.toLowerCase();
+                    if (aHost < bHost) return -1;
+                    if (aHost > bHost) return 1;
+                }
+                
+                // Tertiary sort by name if not already sorting by name
+                if (this.sortColumn !== 'name') {
+                    const aName = a.name.toLowerCase();
+                    const bName = b.name.toLowerCase();
+                    if (aName < bName) return -1;
+                    if (aName > bName) return 1;
+                }
             }
-            return 0;
+            
+            return comparison;
         });
     }
 
@@ -977,9 +943,14 @@ class Dashboard {
     // Hosts Tab
     async loadHostsData() {
         try {
-            const response = await fetch('/api/hosts/status');
-            if (!response.ok) {
-                console.warn('Hosts API not available:', response.status);
+            // Load both hosts data and status data
+            const [hostsResponse, statusResponse] = await Promise.all([
+                fetch('/api/hosts'),
+                fetch('/api/hosts/status')
+            ]);
+            
+            if (!hostsResponse.ok) {
+                console.warn('Hosts API not available:', hostsResponse.status);
                 this.hostsData = {
                     configuration_type: "unknown",
                     hosts: [],
@@ -988,7 +959,41 @@ class Dashboard {
                     connection_status: {}
                 };
             } else {
-                this.hostsData = await response.json();
+                const hosts = await hostsResponse.json();
+                let statusData = { connection_status: {}, dns_verification: {} };
+                
+                if (statusResponse.ok) {
+                    statusData = await statusResponse.json();
+                }
+                
+                // Merge connection status into individual hosts
+                const hostsWithStatus = hosts.map(host => {
+                    const connectionInfo = statusData.connection_status?.[host.hostname];
+                    const dnsInfo = statusData.dns_verification?.[host.alias];
+                    
+                    return {
+                        ...host,
+                        // Add connection status fields
+                        ssh_connected: connectionInfo ? connectionInfo.connected : null,
+                        docker_available: connectionInfo ? connectionInfo.connected : null, // For now, assume Docker is available if SSH is connected
+                        connection_error: connectionInfo ? null : 'No connection status available',
+                        // Add DNS status fields
+                        dns_resolved: dnsInfo ? dnsInfo.dns_resolved : null,
+                        ip_address: dnsInfo ? dnsInfo.ip_address : null,
+                        dns_errors: dnsInfo ? dnsInfo.errors : [],
+                        dns_warnings: dnsInfo ? dnsInfo.warnings : []
+                    };
+                });
+                
+                // Merge the current hosts data with status information
+                this.hostsData = {
+                    configuration_type: statusData.configuration_type || "hosts.yml",
+                    hosts: hostsWithStatus,
+                    total_hosts: hostsWithStatus.length,
+                    enabled_hosts: hostsWithStatus.filter(h => h.enabled).length,
+                    connection_status: statusData.connection_status || {},
+                    dns_verification: statusData.dns_verification || {}
+                };
             }
             
             this.updateHostsDisplay();
@@ -1088,7 +1093,7 @@ class Dashboard {
         if (!this.hostsData.hosts || this.hostsData.hosts.length === 0) {
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="7" style="text-align: center; padding: 2rem;">
+                    <td colspan="8" style="text-align: center; padding: 2rem;">
                         ${this.hostsData.error ? 
                             `<span style="color: var(--danger-color);">Error: ${this.hostsData.error}</span>` :
                             'No hosts configured'
@@ -1122,7 +1127,17 @@ class Dashboard {
                     }
                 } else if (host.dns_resolved === true) {
                     // DNS resolved, check SSH connection
-                    const connectionInfo = this.hostsData.connection_status[host.hostname];
+                    // Try multiple ways to find connection info (hostname, IP, alias)
+                    let connectionInfo = this.hostsData.connection_status[host.hostname];
+                    if (!connectionInfo && host.ip_address) {
+                        connectionInfo = this.hostsData.connection_status[host.ip_address];
+                    }
+                    if (!connectionInfo) {
+                        // Try to find by alias
+                        connectionInfo = Object.values(this.hostsData.connection_status || {})
+                            .find(conn => conn.alias === host.alias);
+                    }
+                    
                     if (connectionInfo) {
                         if (connectionInfo.connected) {
                             statusBadge = '<span class="host-status connected">Connected</span>';
@@ -1133,8 +1148,16 @@ class Dashboard {
                         statusBadge = '<span class="host-status disabled">Not Tested</span>';
                     }
                 } else {
-                    // DNS status unknown
-                    const connectionInfo = this.hostsData.connection_status[host.hostname];
+                    // DNS status unknown, try to find connection info anyway
+                    let connectionInfo = this.hostsData.connection_status[host.hostname];
+                    if (!connectionInfo && host.ip_address) {
+                        connectionInfo = this.hostsData.connection_status[host.ip_address];
+                    }
+                    if (!connectionInfo) {
+                        connectionInfo = Object.values(this.hostsData.connection_status || {})
+                            .find(conn => conn.alias === host.alias);
+                    }
+                    
                     if (connectionInfo) {
                         if (connectionInfo.connected) {
                             statusBadge = '<span class="host-status connected">Connected</span>';
@@ -1170,6 +1193,16 @@ class Dashboard {
                     <td>${statusBadge}</td>
                     <td>${host.description || 'No description'}</td>
                     <td><code style="font-size: 0.8em;">${keyFile}</code></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-small btn-secondary" onclick="dashboard.editHost('${host.alias}')">
+                                Edit
+                            </button>
+                            <button class="btn btn-small btn-danger" onclick="dashboard.deleteHost('${host.alias}')">
+                                Delete
+                            </button>
+                        </div>
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -2363,6 +2396,15 @@ class Dashboard {
         if (recheckBtn) {
             recheckBtn.onclick = () => this.recheckHostsDNS();
         }
+        
+        // Add host button
+        const addBtn = document.getElementById('add-host-btn');
+        if (addBtn) {
+            addBtn.onclick = () => this.showHostModal();
+        }
+        
+        // Host modal event handlers
+        this.setupHostModalEventHandlers();
     }
 
     async recheckStaticRoutesDNS() {
@@ -2449,6 +2491,358 @@ class Dashboard {
         // Simple notification - could be enhanced with a proper toast system
         console.log(`${type.toUpperCase()}: ${message}`);
         alert(message); // For now, use alert - could be replaced with a toast notification
+    }
+
+    // Host Management Methods
+    setupHostModalEventHandlers() {
+        // Host modal handlers
+        const hostModal = document.getElementById('host-modal');
+        const hostForm = document.getElementById('host-form');
+        const modalClose = document.getElementById('host-modal-close');
+        const modalCancel = document.getElementById('host-modal-cancel');
+        const testConnectionBtn = document.getElementById('test-host-connection');
+        
+        // Close modal handlers
+        [modalClose, modalCancel].forEach(btn => {
+            if (btn) {
+                btn.onclick = () => this.hideHostModal();
+            }
+        });
+        
+        // Click outside to close
+        if (hostModal) {
+            hostModal.onclick = (e) => {
+                if (e.target === hostModal) {
+                    this.hideHostModal();
+                }
+            };
+        }
+        
+        // Form submission
+        if (hostForm) {
+            hostForm.onsubmit = (e) => {
+                e.preventDefault();
+                this.saveHost();
+            };
+        }
+        
+        // Test connection button
+        if (testConnectionBtn) {
+            testConnectionBtn.onclick = () => this.testHostConnection();
+        }
+    }
+
+    showHostModal(host = null) {
+        const modal = document.getElementById('host-modal');
+        const title = document.getElementById('host-modal-title');
+        const form = document.getElementById('host-form');
+        
+        if (!modal || !title || !form) return;
+        
+        // Set modal title and form data
+        if (host) {
+            title.textContent = 'Edit Host';
+            this.populateHostForm(host);
+            // Store current host alias for updates
+            form.dataset.editingHost = host.alias;
+        } else {
+            title.textContent = 'Add Host';
+            this.clearHostForm();
+            delete form.dataset.editingHost;
+        }
+        
+        // Show modal
+        modal.classList.add('show');
+        
+        // Focus first input
+        const firstInput = form.querySelector('input[type="text"]');
+        if (firstInput) {
+            setTimeout(() => firstInput.focus(), 100);
+        }
+    }
+
+    hideHostModal() {
+        const modal = document.getElementById('host-modal');
+        const form = document.getElementById('host-form');
+        
+        if (modal) {
+            modal.classList.remove('show');
+        }
+        
+        if (form) {
+            delete form.dataset.editingHost;
+        }
+        
+        this.clearHostForm();
+        this.clearHostValidation();
+    }
+
+    populateHostForm(host) {
+        document.getElementById('host-alias').value = host.alias || '';
+        document.getElementById('host-hostname').value = host.hostname || '';
+        document.getElementById('host-user').value = host.user || 'revp';
+        document.getElementById('host-port').value = host.port || 22;
+        document.getElementById('host-key-file').value = host.key_file || '/home/app/.ssh/docker_monitor_key';
+        document.getElementById('host-description').value = host.description || '';
+        document.getElementById('host-enabled').checked = host.enabled !== false;
+        
+        // Disable alias editing when updating
+        document.getElementById('host-alias').disabled = true;
+    }
+
+    clearHostForm() {
+        document.getElementById('host-alias').value = '';
+        document.getElementById('host-hostname').value = '';
+        document.getElementById('host-user').value = 'revp';
+        document.getElementById('host-port').value = '22';
+        document.getElementById('host-key-file').value = '/home/app/.ssh/docker_monitor_key';
+        document.getElementById('host-description').value = '';
+        document.getElementById('host-enabled').checked = true;
+        
+        // Enable alias editing when creating
+        document.getElementById('host-alias').disabled = false;
+        
+        // Clear connection test results
+        const testResult = document.getElementById('connection-test-result');
+        if (testResult) {
+            testResult.style.display = 'none';
+            testResult.innerHTML = '';
+        }
+    }
+
+    clearHostValidation() {
+        const validation = document.getElementById('host-form-validation');
+        if (validation) {
+            validation.innerHTML = '';
+        }
+    }
+
+    async saveHost() {
+        const form = document.getElementById('host-form');
+        const saveBtn = document.getElementById('host-modal-save');
+        const btnText = saveBtn.querySelector('.btn-text');
+        const btnLoading = saveBtn.querySelector('.btn-loading');
+        
+        try {
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            saveBtn.disabled = true;
+            
+            // Get form data
+            const formData = new FormData(form);
+            const hostData = {
+                alias: formData.get('alias'),
+                hostname: formData.get('hostname'),
+                user: formData.get('user'),
+                port: parseInt(formData.get('port')),
+                key_file: formData.get('key_file'),
+                description: formData.get('description'),
+                enabled: formData.has('enabled')
+            };
+            
+            // Determine if this is an update or create
+            const isUpdate = form.dataset.editingHost;
+            const url = isUpdate 
+                ? `/api/hosts/${encodeURIComponent(form.dataset.editingHost)}`
+                : '/api/hosts';
+            const method = isUpdate ? 'PUT' : 'POST';
+            
+            // For updates, exclude alias from the payload
+            if (isUpdate) {
+                delete hostData.alias;
+            }
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(hostData)
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log(`Host ${isUpdate ? 'updated' : 'created'} successfully:`, result);
+                
+                // Reload hosts data
+                await this.loadHostsData();
+                
+                // Close modal
+                this.hideHostModal();
+                
+                // Show success message
+                this.showNotification(`Host ${isUpdate ? 'updated' : 'created'} successfully`, 'success');
+            } else {
+                const error = await response.json();
+                this.showHostValidationError(error.detail || 'Unknown error');
+            }
+        } catch (error) {
+            console.error('Error saving host:', error);
+            this.showHostValidationError('Network error while saving host');
+        } finally {
+            // Reset button state
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            saveBtn.disabled = false;
+        }
+    }
+
+    async testHostConnection() {
+        const form = document.getElementById('host-form');
+        const testBtn = document.getElementById('test-host-connection');
+        const btnText = testBtn.querySelector('.btn-text');
+        const btnLoading = testBtn.querySelector('.btn-loading');
+        const resultDiv = document.getElementById('connection-test-result');
+        
+        try {
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+            testBtn.disabled = true;
+            
+            // For testing, we need to check if we're editing an existing host
+            const hostAlias = form.dataset.editingHost || document.getElementById('host-alias').value;
+            
+            if (!hostAlias) {
+                this.showConnectionTestResult({
+                    ssh_connected: false,
+                    docker_available: false,
+                    error: 'Host alias is required for connection testing'
+                });
+                return;
+            }
+            
+            const response = await fetch(`/api/hosts/${encodeURIComponent(hostAlias)}/test-connection`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.showConnectionTestResult(result);
+            } else {
+                const error = await response.json();
+                this.showConnectionTestResult({
+                    ssh_connected: false,
+                    docker_available: false,
+                    error: error.detail || 'Connection test failed'
+                });
+            }
+        } catch (error) {
+            console.error('Error testing host connection:', error);
+            this.showConnectionTestResult({
+                ssh_connected: false,
+                docker_available: false,
+                error: 'Network error during connection test'
+            });
+        } finally {
+            // Reset button state
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+            testBtn.disabled = false;
+        }
+    }
+
+    showConnectionTestResult(result) {
+        const resultDiv = document.getElementById('connection-test-result');
+        if (!resultDiv) return;
+        
+        let html = '<div class="connection-test-results">';
+        
+        if (result.error) {
+            html += `<div class="test-result test-error">❌ ${result.error}</div>`;
+        } else {
+            // SSH Status
+            html += `<div class="test-result ${result.ssh_connected ? 'test-success' : 'test-error'}">
+                ${result.ssh_connected ? '✅' : '❌'} SSH Connection
+            </div>`;
+            
+            // Docker Status
+            html += `<div class="test-result ${result.docker_available ? 'test-success' : 'test-error'}">
+                ${result.docker_available ? '✅' : '❌'} Docker Available
+            </div>`;
+            
+            // Connection time
+            if (result.connection_time_ms) {
+                html += `<div class="test-result test-info">
+                    ⏱️ Response time: ${Math.round(result.connection_time_ms)}ms
+                </div>`;
+            }
+        }
+        
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        resultDiv.style.display = 'block';
+    }
+
+    showHostValidationError(message) {
+        const validation = document.getElementById('host-form-validation');
+        if (validation) {
+            validation.innerHTML = `<div class="validation-error">${message}</div>`;
+        }
+    }
+
+    editHost(alias) {
+        const host = this.hostsData.hosts?.find(h => h.alias === alias);
+        if (host) {
+            this.showHostModal(host);
+        }
+    }
+
+    deleteHost(alias) {
+        // Show confirmation modal
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmTitle = document.getElementById('confirm-title');
+        const confirmMessage = document.getElementById('confirm-message');
+        const confirmOk = document.getElementById('confirm-ok');
+        
+        if (!confirmModal) return;
+        
+        confirmTitle.textContent = 'Delete Host';
+        confirmMessage.textContent = `Are you sure you want to delete host "${alias}"? This will stop monitoring this host and remove all its container routes.`;
+        
+        // Remove previous event listeners
+        confirmOk.replaceWith(confirmOk.cloneNode(true));
+        const newConfirmOk = document.getElementById('confirm-ok');
+        
+        newConfirmOk.onclick = async () => {
+            const confirmBtn = newConfirmOk;
+            const btnText = confirmBtn.querySelector('.btn-text');
+            const btnLoading = confirmBtn.querySelector('.btn-loading');
+            
+            try {
+                // Show loading state
+                btnText.style.display = 'none';
+                btnLoading.style.display = 'inline';
+                confirmBtn.disabled = true;
+                
+                const response = await fetch(`/api/hosts/${encodeURIComponent(alias)}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    console.log(`Host ${alias} deleted successfully`);
+                    
+                    // Hide confirmation modal
+                    confirmModal.style.display = 'none';
+                    
+                    // Reload hosts data
+                    await this.loadHostsData();
+                    
+                    // Show success message
+                    this.showNotification(`Host "${alias}" deleted successfully`, 'success');
+                } else {
+                    const errorData = await response.json();
+                    alert(`Failed to delete host: ${errorData.detail || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error deleting host:', error);
+                alert('Network error. Please try again.');
+            } finally {
+                confirmBtn.classList.remove('btn-loading');
+            }
+        };
+        
+        confirmModal.style.display = 'flex';
     }
 }
 
